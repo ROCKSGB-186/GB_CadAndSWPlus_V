@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "GB_CadAndSWPlus_V": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\AutoCAD 2024\\acad.exe",
+      "commandLineArgs": "/nologo",
+      "nativeDebugging": false
+    }
+  }
+}

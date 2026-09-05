@@ -1,0 +1,55 @@
+using GB_CadAndSWPlus_V.UploadApi.Filters;
+using GB_CadAndSWPlus_V.UploadApi.Models;
+using GB_CadAndSWPlus_V.UploadApi.Services;
+using Dm;
+using Microsoft.AspNetCore.Mvc;
+
+namespace GB_CadAndSWPlus_V.UploadApi.Controllers;
+
+[ApiController]
+[Route("api/departments")]
+[ServiceFilter(typeof(OperationLogFilter))]
+public sealed class DepartmentsController : ControllerBase
+{
+    private readonly DepartmentQueryService _departmentQueryService;
+    private readonly ILogger<DepartmentsController> _logger;
+
+    public DepartmentsController(DepartmentQueryService departmentQueryService, ILogger<DepartmentsController> logger)
+    {
+        _departmentQueryService = departmentQueryService ?? throw new ArgumentNullException(nameof(departmentQueryService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    [HttpGet]
+    [ProducesResponseType(typeof(DepartmentListResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<DepartmentListResponse>> GetAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _departmentQueryService.GetDepartmentsAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new EmptyResult();
+        }
+        catch (DmException ex)
+        {
+            _logger.LogError(ex, "部门查询时连接达梦数据库失败。DatabaseType=DM");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                success = false,
+                message = "数据库服务暂时不可用，请稍后重试。"
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "部门查询接口执行失败。");
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                message = "部门查询失败，请查看服务器日志。"
+            });
+        }
+    }
+}

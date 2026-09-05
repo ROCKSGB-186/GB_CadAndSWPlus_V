@@ -1,0 +1,6 @@
+@GB_CadAndSWPlus_V_Server_HostAddress = http://localhost:10010
+
+GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

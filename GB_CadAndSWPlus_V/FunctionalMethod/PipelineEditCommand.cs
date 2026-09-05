@@ -1,0 +1,201 @@
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Runtime;
+using GB_CadAndSWPlus_V.DisplayPages;
+using GB_CadAndSWPlus_V.Helpers;
+using GB_CadAndSWPlus_V.Models;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Threading.Tasks;
+using AutoCADApplication = Autodesk.AutoCAD.ApplicationServices.Application;
+
+namespace GB_CadAndSWPlus_V.FunctionalMethod
+{
+    /// <summary>
+    /// 管道选择和参数编辑命令。
+    /// </summary>
+    public static class PipelineEditCommand
+    {
+        /// <summary>
+        /// 选择带 PIPEID 的 Polyline 管道并打开通用参数页面。
+        /// </summary>
+        [CommandMethod("PIPELINE_EDIT", CommandFlags.UsePickSet)]
+        public static async void EditPipeline()
+        {
+            Document document = AutoCADApplication.DocumentManager.MdiActiveDocument;
+            if (document == null)
+            {
+                return;
+            }
+
+            Editor editor = document.Editor;
+            ObjectId pipelineObjectId = GetPreselectedPipeline(editor);
+            if (pipelineObjectId == ObjectId.Null)
+            {
+                PromptEntityOptions options = new PromptEntityOptions("\n选择要编辑的管道：");
+                options.SetRejectMessage("\n请选择管道 Polyline。\n");
+                options.AddAllowedClass(typeof(Polyline), true);
+
+                PromptEntityResult selection = editor.GetEntity(options);
+                if (selection.Status != PromptStatus.OK)
+                {
+                    return;
+                }
+
+                pipelineObjectId = selection.ObjectId;
+            }
+
+            Dictionary<string, string> attributes;
+            using (Transaction transaction = document.Database.TransactionManager.StartTransaction())
+            {
+                Entity entity = transaction.GetObject(pipelineObjectId, OpenMode.ForRead) as Entity;
+                if (!(entity is Polyline))
+                {
+                    editor.WriteMessage("\n选择的对象不是管道 Polyline。\n");
+                    return;
+                }
+                attributes = PipelineEndpointPropertyHelper.ReadEntityProperties(transaction, entity);
+                if (entity is Polyline selectedPipeline)
+                {
+                    double currentLength = PipelineCadEditService.GetPolylineLength(selectedPipeline);
+                    attributes["PIPE_LENGTH"] = currentLength.ToString(
+                        "0.###",
+                        CultureInfo.InvariantCulture);
+                    LogManager.Instance.LogInfo(
+                        $"[PIPELINE_EDIT][当前长度读取] ObjectId={pipelineObjectId}, CurrentLength={attributes["PIPE_LENGTH"]}, VertexCount={selectedPipeline.NumberOfVertices}");
+                }
+                transaction.Commit();
+            }
+
+            LogManager.Instance.LogInfo(
+                $"[PIPELINE_EDIT][属性读取完成] ObjectId={pipelineObjectId}, AttributeCount={attributes.Count}, HasPipeId={attributes.ContainsKey("PIPEID")}");
+
+            if (!attributes.TryGetValue("PIPEID", out string pipeId) || string.IsNullOrWhiteSpace(pipeId))
+            {
+                editor.WriteMessage("\n该 Polyline 没有 PIPEID，不是新管道对象。\n");
+                return;
+            }
+
+            try
+            {
+                StandardApiService apiService = new StandardApiService();
+                PipelineFieldCatalogResponseClient catalog =
+                    await apiService.GetPipelineFieldCatalogAsync();
+                if (!catalog.Success)
+                {
+                    editor.WriteMessage($"\n管道字段目录获取失败：{catalog.Message}\n");
+                    LogManager.Instance.LogWarning(
+                        $"[PIPELINE_EDIT][字段目录失败] Message={catalog.Message}");
+                    return;
+                }
+
+                LogManager.Instance.LogInfo(
+                    $"[PIPELINE_EDIT][字段目录完成] FieldCount={catalog.Fields.Count}, AttributeCount={attributes.Count}");
+
+                PipelineParameterWindow window = new PipelineParameterWindow();
+                window.Initialize(
+                    attributes.TryGetValue("PIPE_ROLE", out string role) ? role : PipelineRoles.Import,
+                    catalog.Fields,
+                    attributes,
+                    new List<string>());
+
+                bool? dialogResult = window.ShowDialog();
+                if (dialogResult != true)
+                {
+                    return;
+                }
+
+                using (DocumentLock documentLock = document.LockDocument())
+                {
+                    LogManager.Instance.LogInfo("[PIPELINE_EDIT][文档锁成功] 已获取当前文档写锁。");
+                    Dictionary<string, string> changedAttributes = GetChangedAttributes(
+                        attributes,
+                        window.ConfirmedAttributes);
+                    IReadOnlyList<ObjectId> flangeComponentIds = PipelineCadEditService.UpdatePipeline(
+                        document.Database,
+                        pipelineObjectId,
+                        window.ConfirmedAttributes,
+                        changedAttributes);
+                    PipelineCadEditService.RefreshFlangeStandards(
+                        document.Database,
+                        flangeComponentIds);
+                    editor.Regen();
+                }
+                LogManager.Instance.LogInfo(
+                    $"[PIPELINE_EDIT][回写完成] PipeId={pipeId}, AttributeCount={window.ConfirmedAttributes.Count}, ChangedAttributeCount={GetChangedAttributes(attributes, window.ConfirmedAttributes).Count}");
+                editor.WriteMessage($"\n管道参数已更新，PipeId={pipeId}。\n");
+            }
+            catch (Exception exception)
+            {
+                LogManager.Instance.LogInfo($"管道编辑命令异常：PipeId={pipeId}，错误={exception.Message}");
+                editor.WriteMessage($"\n管道编辑失败：{exception.Message}\n");
+            }
+        }
+
+        private static ObjectId GetPreselectedPipeline(Editor editor)
+        {
+            PromptSelectionResult impliedSelection = editor.SelectImplied();
+            if (impliedSelection.Status != PromptStatus.OK || impliedSelection.Value.Count == 0)
+            {
+                return ObjectId.Null;
+            }
+
+            foreach (SelectedObject selectedObject in impliedSelection.Value)
+            {
+                if (selectedObject == null)
+                {
+                    continue;
+                }
+
+                using (Transaction transaction = editor.Document.Database.TransactionManager.StartTransaction())
+                {
+                    Entity entity = transaction.GetObject(selectedObject.ObjectId, OpenMode.ForRead) as Entity;
+                    if (entity is Polyline)
+                    {
+                        transaction.Commit();
+                        return selectedObject.ObjectId;
+                    }
+                }
+            }
+
+            editor.WriteMessage("\n预选对象不是管道 Polyline，请重新选择。\n");
+            return ObjectId.Null;
+        }
+
+        /// <summary>
+        /// 比较编辑前后的管道属性，仅保留本次确认时实际变更的字段。
+        /// </summary>
+        private static Dictionary<string, string> GetChangedAttributes(
+            IDictionary<string, string> originalAttributes,
+            IDictionary<string, string> confirmedAttributes)
+        {
+            var changedAttributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (confirmedAttributes == null)
+            {
+                return changedAttributes;
+            }
+
+            foreach (KeyValuePair<string, string> confirmedAttribute in confirmedAttributes)
+            {
+                if (string.IsNullOrWhiteSpace(confirmedAttribute.Key))
+                {
+                    continue;
+                }
+
+                string originalValue = originalAttributes != null &&
+                    originalAttributes.TryGetValue(confirmedAttribute.Key, out string value)
+                    ? value ?? string.Empty
+                    : string.Empty;
+                string confirmedValue = confirmedAttribute.Value ?? string.Empty;
+                if (!string.Equals(originalValue, confirmedValue, StringComparison.Ordinal))
+                {
+                    changedAttributes[confirmedAttribute.Key] = confirmedValue;
+                }
+            }
+
+            return changedAttributes;
+        }
+    }
+}
