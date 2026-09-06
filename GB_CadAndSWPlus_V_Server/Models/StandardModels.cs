@@ -205,6 +205,31 @@ public sealed class StandardMatchResponse
 }
 
 /// <summary>
+/// 螺栓规范匹配请求。
+/// </summary>
+public sealed class BoltStandardMatchRequest
+{
+    public string FamilyCode { get; init; } = "BOLT";
+    public string SeriesCode { get; init; } = string.Empty;
+    public string StandardNumber { get; init; } = string.Empty;
+    public string DN { get; init; } = string.Empty;
+    public string PN { get; init; } = string.Empty;
+    public string Short { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// 螺栓规范匹配响应，Attributes 来自动态规范原始行并补充兼容字段。
+/// </summary>
+public sealed class BoltStandardMatchResponse
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public int MatchCount { get; init; }
+    public bool IsUniqueMatch { get; init; }
+    public Dictionary<string, string> Attributes { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>
 /// Excel 导入预览行，后续预览和确认接口共用。
 /// </summary>
 public sealed class StandardImportRowDto

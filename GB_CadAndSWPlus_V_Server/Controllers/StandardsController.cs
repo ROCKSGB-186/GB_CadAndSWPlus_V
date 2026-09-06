@@ -43,6 +43,42 @@ public sealed class StandardsController : ControllerBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// 根据螺栓系列、DN、PN 和 SHORT 查询螺栓规范。
+    /// 请求：POST /api/standards/bolts/match
+    /// </summary>
+    [HttpPost("bolts/match")]
+    [ProducesResponseType(typeof(BoltStandardMatchResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<BoltStandardMatchResponse>> MatchBoltAsync(
+        [FromBody] BoltStandardMatchRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            BoltStandardMatchResponse response = await _standardQueryService
+                .MatchBoltAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+            return Ok(response);
+        }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning(ex, "螺栓规范查询参数无效。DN={DN}, PN={PN}, SHORT={Short}", request?.DN, request?.PN, request?.Short);
+            return BadRequest(new BoltStandardMatchResponse { Success = false, Message = ex.Message });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new EmptyResult();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "螺栓规范查询接口执行失败。DN={DN}, PN={PN}, SHORT={Short}", request?.DN, request?.PN, request?.Short);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new BoltStandardMatchResponse { Success = false, Message = "螺栓规范查询失败，请查看服务器日志。" });
+        }
+    }
+
     [HttpPut("management/versions/{versionId:long}/name")]
     public async Task<ActionResult<StandardManagementOperationResponse>> RenameManagementVersionAsync(
         long versionId,

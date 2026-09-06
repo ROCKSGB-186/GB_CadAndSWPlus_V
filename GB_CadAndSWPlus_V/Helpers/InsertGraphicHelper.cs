@@ -119,8 +119,12 @@ namespace GB_CadAndSWPlus_V.Helpers
                 int boltQuantity = ParseIntegerOrZeroForInsert(boltHoles) * flangeQuantity;
                 SetPropertyValueByNormalizedKey(propertyMap, "FLG_QTY", flangeQuantity.ToString());
                 SetPropertyValueByNormalizedKey(propertyMap, "BOLT_QTY", boltQuantity.ToString());
-                // 源图元可能没有 BOLT_LENGTH 属性，但插入前页面必须显示该字段，供螺栓规范结果写入。
-                SetPropertyValueByNormalizedKey(propertyMap, "BOLT_LENGTH", string.Empty);
+                // 源图元可能没有 BOLT_LENGTH 属性，但已有值不能被插入前页面初始化清空。
+                // 若螺栓规范查询成功，窗口后续会用规范结果覆盖该值。
+                if (FindProperty(propertyMap, "BOLT_LENGTH", "BOLTLENGTH", "螺栓长度") == null)
+                {
+                    SetPropertyValueByNormalizedKey(propertyMap, "BOLT_LENGTH", string.Empty);
+                }
                 logger.LogInfo($"插入前法兰扩展属性已加入：连接方式={connectionType}, FLG_QTY={FindProperty(propertyMap, "FLG_QTY") ?? string.Empty}, BOLT_HOLES={boltHoles}, BOLT_QTY={FindProperty(propertyMap, "BOLT_QTY") ?? string.Empty}, BOLT_LENGTH={FindProperty(propertyMap, "BOLT_LENGTH") ?? string.Empty}");
             }
 

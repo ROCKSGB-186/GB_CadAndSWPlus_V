@@ -94,11 +94,12 @@ namespace GB_CadAndSWPlus_V.Views
             if (sender is not InsertGraphicPropertyRow row || e.PropertyName != nameof(InsertGraphicPropertyRow.Value)) return;
 
             // 连接方式和螺栓孔数量都是计算结果的输入项，任一项变化都要重新计算。
-            if (!row.IsConnectionType && !IsBoltHolesName(row.Name)) return;
+            bool isConnectionType = IsConnectionTypeName(row.Name);
+            if (!isConnectionType && !IsBoltHolesName(row.Name)) return;
 
             UpdateFlangeAndBoltQuantities();
 
-            if (row.IsConnectionType)
+            if (isConnectionType)
                 _ = RefreshBoltStandardAsync();
         }
 
@@ -254,11 +255,7 @@ namespace GB_CadAndSWPlus_V.Views
         private async Task RefreshBoltStandardAsync()
         {
             string connectionType = FindConnectionTypeRow()?.Value?.Trim() ?? string.Empty;
-            string shortCode = connectionType.IndexOf("对夹", StringComparison.OrdinalIgnoreCase) >= 0
-                ? "L"
-                : connectionType.IndexOf("法兰", StringComparison.OrdinalIgnoreCase) >= 0
-                    ? "S"
-                    : string.Empty;
+            string shortCode = GetBoltShortCode(connectionType);
             InsertGraphicPropertyRow? lengthRow = FindRow("BOLT_LENGTH", "BOLTLENGTH");
             if (lengthRow == null) return;
 
@@ -288,6 +285,14 @@ namespace GB_CadAndSWPlus_V.Views
                     PN = pn,
                     Short = shortCode
                 }).ConfigureAwait(true);
+                string responseShortCode = FindBoltValue(response?.Attributes ?? new Dictionary<string, string>(),
+                    "SHORT", "Short", "简写", "短代码");
+                if (response?.Success == true && !string.Equals(responseShortCode, shortCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    LogManager.Instance.LogWarning(
+                        $"螺栓规范返回 SHORT 与请求不一致，拒绝缓存：请求={shortCode}，返回={responseShortCode}，CONN_TYPE={connectionType}");
+                    response = new BoltStandardMatchResponse { Success = false };
+                }
                 _boltStandardResponses[shortCode] = response ?? new BoltStandardMatchResponse();
             }
 
@@ -353,11 +358,7 @@ namespace GB_CadAndSWPlus_V.Views
         /// </summary>
         private void UpdateBoltStandardValues(string connectionType, int boltHoles)
         {
-            string shortCode = connectionType.Contains("对夹", StringComparison.OrdinalIgnoreCase)
-                ? "L"
-                : connectionType.Contains("法兰", StringComparison.OrdinalIgnoreCase)
-                    ? "S"
-                    : string.Empty;
+            string shortCode = GetBoltShortCode(connectionType);
 
             InsertGraphicPropertyRow? lengthRow = FindRow("BOLT_LENGTH", "BOLTLENGTH");
             InsertGraphicPropertyRow? quantityRow = FindRow("BOLT_QTY", "BOLTQTY");
@@ -381,6 +382,14 @@ namespace GB_CadAndSWPlus_V.Views
 
             LogManager.Instance.LogInfo(
                 $"插入前窗口螺栓规范切换：CONN_TYPE={connectionType}，SHORT={shortCode}，LENGTH={length}，规范QUANTITY={quantity}，BOLT_HOLES={boltHoles}，BOLT_QTY={boltHoles * GetFlangeQuantity(connectionType, _isStandaloneFlangeOrBlindPlate)}");
+        }
+
+        private static string GetBoltShortCode(string connectionType)
+        {
+            string value = (connectionType ?? string.Empty).Replace(" ", string.Empty).Replace("　", string.Empty);
+            if (value.IndexOf("对夹", StringComparison.OrdinalIgnoreCase) >= 0) return "L";
+            if (value.IndexOf("法兰", StringComparison.OrdinalIgnoreCase) >= 0) return "S";
+            return string.Empty;
         }
 
         /// <summary>
@@ -448,11 +457,11 @@ namespace GB_CadAndSWPlus_V.Views
         /// <returns>如果属性名表示连接方式则返回 true，否则返回 false</returns>
         private static bool IsConnectionTypeName(string name)
         {
-            return string.Equals(name, "CONN_TYPE", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "CONNTYPE", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "DNCONN_TYPE", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "连接方式", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(name, "连接形式", StringComparison.OrdinalIgnoreCase);
+            string normalizedName = NormalizePropertyName(name);
+            return normalizedName == "CONNTYPE"
+                || normalizedName == "DNCONNTYPE"
+                || normalizedName == "连接方式"
+                || normalizedName == "连接形式";
         }
 
         /// <summary>

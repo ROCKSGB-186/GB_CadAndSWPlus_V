@@ -85,7 +85,16 @@ builder.Services.AddSingleton<IFileLogService, HourlyFileLogger>();
 
 // 日志过滤器：OperationLogFilter 是一个 ASP.NET Core 动作过滤器（通常用于自动记录每个 API 请求/响应）。它需要依赖 HourlyFileLogger（通过构造函数注入）。
 builder.Services.AddScoped<OperationLogFilter>();
-builder.Services.AddApplicationInsightsTelemetry();
+string? applicationInsightsConnectionString =
+    builder.Configuration["ApplicationInsights:ConnectionString"]
+    ?? builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"];
+if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
+{
+    builder.Services.AddApplicationInsightsTelemetry(options =>
+    {
+        options.ConnectionString = applicationInsightsConnectionString;
+    });
+}
 
 
 
@@ -114,12 +123,14 @@ app.UseExceptionHandler(exceptionApp =>
     });
 });
 
-// 6. 配置开发环境中间件: 定义 HTTP 请求处理流程。根据环境条件启用 Swagger UI，强制使用 HTTPS，启用授权中间件，并映射控制器路由。
-if (app.Environment.IsDevelopment())
+// 6. 配置 API 文档中间件：开发环境默认启用，生产环境可通过 Server:EnableSwagger 显式启用。
+bool enableSwagger = app.Environment.IsDevelopment()
+    || builder.Configuration.GetValue<bool>("Server:EnableSwagger");
+if (enableSwagger)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
-} // 仅在开发环境启用 Swagger 页面和 JSON 端点，生产环境自动关闭。
+}
 
 // 7. 标准 HTTP 中间件配置：
 // 当前客户端默认通过 HTTP 访问 API；仅在明确配置时启用 HTTPS 重定向，

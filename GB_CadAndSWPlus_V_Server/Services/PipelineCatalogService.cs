@@ -77,7 +77,7 @@ public sealed class PipelineCatalogService
             Field("START_POINT", "起始点", string.Empty, PipelineFieldDataTypes.Text, false, false, "连接关系", 70),
             Field("END_POINT", "终点", string.Empty, PipelineFieldDataTypes.Text, false, false, "连接关系", 80),
             Field("FLG_STD", "法兰标准", "HG/T 20592", PipelineFieldDataTypes.Select, false, true, "标准与检验", 90,
-                "HG/T 20592", "GB/T 9119", "ASME B16.5", "JB/T 79"),
+                "GB/T 9124.1-2019","HG/T 20592", "GB/T 9119", "ASME B16.5", "JB/T 79"),
             Field("TEST_STD", "试验与检验标准", "GB/T 20801", PipelineFieldDataTypes.Select, false, true, "标准与检验", 100,
                 "GB/T 13927", "GB/T 20801", "无损检测比例"),
             Field("DN", "公称通径", "DN150", PipelineFieldDataTypes.Select, true, true, "设计条件", 110,

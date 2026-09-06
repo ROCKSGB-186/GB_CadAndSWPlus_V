@@ -37,6 +37,156 @@ public sealed class StandardQueryService
     }
 
     /// <summary>
+    /// 从当前动态规范版本中匹配螺栓长度和数量。
+    /// </summary>
+    public async Task<BoltStandardMatchResponse> MatchBoltAsync(
+        BoltStandardMatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        string dn = NormalizeDn(request.DN);
+        string pn = NormalizePn(request.PN);
+        string familyCode = NormalizeCode(request.FamilyCode);
+        string seriesCode = NormalizeCode(request.SeriesCode);
+        string standardNumber = NormalizeStandardNumber(request.StandardNumber) ?? string.Empty;
+        string shortCode = NormalizeMatchText(request.Short);
+
+        if (string.IsNullOrWhiteSpace(dn) || string.IsNullOrWhiteSpace(pn))
+        {
+            throw new ArgumentException("螺栓规范匹配必须提供 DN 和 PN。", nameof(request));
+        }
+
+        List<DynamicMatchRow> rows = await QueryDynamicBoltRowsAsync(
+            familyCode,
+            seriesCode,
+            standardNumber,
+            cancellationToken).ConfigureAwait(false);
+
+        DynamicMatchRow? matchedRow = rows
+            .Select(row => (row, values: DeserializeDictionary(row.ValuesJson)))
+            .Where(item =>
+            {
+                bool diameterMatches = DiameterEquals(
+                    NormalizeDn(GetDynamicValue(item.values, "DN", "DNValue", "DN值", "公称通径", "公称直径")), dn);
+                bool pressureMatches = PressureEquals(
+                    NormalizePn(GetDynamicValue(item.values, "PN", "PNValue", "PN值", "公称压力", "压力等级")), pn);
+                if (!diameterMatches || !pressureMatches) return false;
+
+                if (!string.IsNullOrWhiteSpace(shortCode))
+                {
+                    string rowShort = NormalizeMatchText(GetDynamicValue(item.values,
+                        "SHORT", "Short", "简写", "短代码"));
+                    if (rowShort != shortCode) return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(standardNumber)) return true;
+
+                string rowStandardNumber = NormalizeStandardNumber(item.row.StandardNumber) ?? string.Empty;
+                string valueStandardNumber = NormalizeStandardNumber(
+                    GetDynamicValue(item.values, "StandardNumber", "标准号", "STANDARD_NO")) ?? string.Empty;
+                return rowStandardNumber == standardNumber || valueStandardNumber == standardNumber;
+            })
+            .Select(item => item.row)
+            .FirstOrDefault();
+
+        if (matchedRow == null)
+        {
+            return new BoltStandardMatchResponse
+            {
+                Success = false,
+                Message = $"未找到螺栓规范：系列={seriesCode}，标准号={standardNumber}，DN={dn}，PN={pn}。"
+            };
+        }
+
+        Dictionary<string, string> attributes = DeserializeDictionary(matchedRow.ValuesJson);
+        string length = GetDynamicValue(attributes,
+            "LENGTH", "Length", "长度", "BOLT_LENGTH", "BOLTLENGTH", "螺栓长度");
+        string quantity = GetDynamicValue(attributes,
+            "QUANTITY", "Quantity", "数量", "BOLT_QTY", "BOLTQTY", "螺栓数量");
+        if (!string.IsNullOrWhiteSpace(length))
+        {
+            attributes["LENGTH"] = length;
+            attributes["BOLT_LENGTH"] = length;
+        }
+        if (!string.IsNullOrWhiteSpace(quantity))
+        {
+            attributes["QUANTITY"] = quantity;
+            attributes["BOLT_QTY"] = quantity;
+        }
+
+        _logger.LogInformation(
+            "螺栓规范命中：SeriesId={SeriesId}, SeriesCode={SeriesCode}, StandardNumber={StandardNumber}, SHORT={Short}, RowNumber={RowNumber}, LENGTH={Length}, QUANTITY={Quantity}",
+            matchedRow.SeriesId,
+            matchedRow.SeriesCode,
+            matchedRow.StandardNumber,
+            GetDynamicValue(attributes, "SHORT", "Short", "简写", "短代码"),
+            matchedRow.SourceRowNumber,
+            length,
+            quantity);
+
+        return new BoltStandardMatchResponse
+        {
+            Success = !string.IsNullOrWhiteSpace(length),
+            Message = string.IsNullOrWhiteSpace(length)
+                ? "螺栓规范已命中，但动态数据未包含 LENGTH 字段。"
+                : "螺栓规范匹配成功。",
+            MatchCount = 1,
+            IsUniqueMatch = true,
+            Attributes = attributes
+        };
+    }
+
+    private async Task<List<DynamicMatchRow>> QueryDynamicBoltRowsAsync(
+        string familyCode,
+        string seriesCode,
+        string standardNumber,
+        CancellationToken cancellationToken)
+    {
+        string databaseType = GetDatabaseType();
+        string schema = GetSchemaName();
+        string versionTable = databaseType == "DM"
+            ? $"{schema}.STANDARD_DOCUMENT_VERSIONS"
+            : "standard_document_versions";
+        string rowTable = databaseType == "DM"
+            ? $"{schema}.STANDARD_DYNAMIC_VERSION_ROWS"
+            : "standard_dynamic_version_rows";
+        string seriesTable = databaseType == "DM"
+            ? $"{schema}.STANDARD_SERIES"
+            : "standard_series";
+        string familyTable = databaseType == "DM"
+            ? $"{schema}.STANDARD_FAMILIES"
+            : "standard_families";
+        string parameter = databaseType == "DM" ? ":" : "@";
+        string sql = $"""
+            SELECT ss.ID AS SeriesId, sf.CODE AS FamilyCode, sf.NAME AS FamilyName,
+                   ss.SERIES_CODE AS SeriesCode, ss.SERIES_NAME AS SeriesName,
+                   ss.STANDARD_NUMBER AS StandardNumber, ss.TABLE_NUMBER AS TableNumber,
+                   ss.PRESSURE_RATING AS PressureRating, ss.FLANGE_TYPE AS FlangeType,
+                   ss.FACE_TYPE AS FaceType, r.ROW_NUMBER AS SourceRowNumber,
+                   r.VALUES_JSON AS ValuesJson
+            FROM {versionTable} v
+            INNER JOIN {rowTable} r ON r.VERSION_ID = v.ID
+            INNER JOIN {seriesTable} ss ON ss.ID = v.SERIES_ID AND ss.IS_ACTIVE = 1
+            INNER JOIN {familyTable} sf ON sf.ID = ss.FAMILY_ID AND sf.IS_ACTIVE = 1
+            WHERE UPPER(TRIM(sf.CODE)) = UPPER(TRIM({parameter}FamilyCode))
+              AND v.IS_CURRENT = 1
+              AND v.IS_DELETED = 0
+            ORDER BY CASE WHEN UPPER(TRIM(ss.SERIES_CODE)) = UPPER(TRIM({parameter}SeriesCode)) THEN 0 ELSE 1 END,
+                     CASE WHEN UPPER(TRIM(ss.STANDARD_NUMBER)) = UPPER(TRIM({parameter}StandardNumber)) THEN 0 ELSE 1 END,
+                     r.ROW_NUMBER
+            """;
+
+        await using DbConnection connection = databaseType == "DM"
+            ? new DmConnection(GetConnectionString("DM"))
+            : new MySqlConnection(GetConnectionString("MYSQL"));
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        return (await connection.QueryAsync<DynamicMatchRow>(
+            new CommandDefinition(sql, new { FamilyCode = familyCode, SeriesCode = seriesCode, StandardNumber = standardNumber }, cancellationToken: cancellationToken))
+            .ConfigureAwait(false)).AsList();
+    }
+
+    /// <summary>
     /// 查询唯一的法兰规范记录，并转换为当前法兰图元可使用的属性。
     /// </summary>
     public async Task<StandardMatchResponse> MatchFlangeAsync(
