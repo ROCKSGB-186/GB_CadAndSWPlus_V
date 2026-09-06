@@ -3643,7 +3643,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 var uiScale = AutoCadHelper.GetScale();
                 double plScale = 0.3 * uiScale; // 设置线宽
                 var layerName = VariableDictionary.btnBlockLayer; // 设置图层名称
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 231); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == 0 ? 231 : VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
 
@@ -3806,7 +3806,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 pointS.Clear();
                 double uiScale = 0.3 * AutoCadHelper.GetScale();
                 var layerName = VariableDictionary.btnBlockLayer; // 设置图层名称
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 231); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == 0 ? 231 : VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
                 LayerDictionaryHelper.EnsureTargetLayer(tr, layerName, layerColorIndex);//添加图层；
@@ -4018,7 +4018,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             {
                 pointS.Clear();
                 var layerName = VariableDictionary.btnBlockLayer; // 设置图层名称
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 231); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == 0 ? 231 : VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
                 LayerDictionaryHelper.EnsureTargetLayer(tr, layerName, layerColorIndex);//添加图层；
@@ -4562,7 +4562,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             try
             {
                 var layerName = VariableDictionary.btnBlockLayer;
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 0); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
                 LayerDictionaryHelper.EnsureTargetLayer(tr, layerName, layerColorIndex);//添加图层；
@@ -4668,7 +4668,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 var winformTextBoxScale = AutoCadHelper.GetScale();
                 // 计算矢量差（拖动时基于参考点的偏移量）  
                 var delta = new Vector3d(0, 0, 0);
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 0); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
                 LayerDictionaryHelper.EnsureTargetLayer(tr, layerName, layerColorIndex);//添加图层；
@@ -4896,7 +4896,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 var layerName = VariableDictionary.btnBlockLayer; // 图层
                 var move = VariableDictionary.textbox_Gap; // 获取用户输入的移动距离
 
-                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == null ? VariableDictionary.layerColorIndex : 64); // 设置图层颜色索引
+                Int16 layerColorIndex = Convert.ToInt16(VariableDictionary.layerColorIndex == 0 ? 64 : VariableDictionary.layerColorIndex); // 设置图层颜色索引
                 using var tr = new DBTrans();//开启事务
                                              // 检查图层是否存在，如果不存在则创建
                 LayerDictionaryHelper.EnsureTargetLayer(tr, layerName, layerColorIndex);//添加图层；
@@ -4974,7 +4974,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 // 1) 设置结果图层名称和颜色
                 string layerName = "房屋面积";
                 short layerColorIndex = 2;
-                var winformTextBoxScale = VariableDictionary.winformTextBoxScale == null ? VariableDictionary.winformTextBoxScale : 100;
+                var winformTextBoxScale = VariableDictionary.winformTextBoxScale == 0 ? 100 : VariableDictionary.winformTextBoxScale;
 
                 // 2) 用于存储用户依次确认的点（二维点，统一按 UCS 保存）
                 List<Point2d> points = new List<Point2d>();

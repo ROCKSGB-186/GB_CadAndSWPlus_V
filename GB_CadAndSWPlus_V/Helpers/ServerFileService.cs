@@ -182,7 +182,15 @@ namespace GB_CadAndSWPlus_V.Helpers
             {
                 byte[] header = new byte[8];
                 using (var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-                    fs.Read(header, 0, header.Length);
+                {
+                    int offset = 0;
+                    while (offset < header.Length)
+                    {
+                        int read = fs.Read(header, offset, header.Length - offset);
+                        if (read == 0) break;
+                        offset += read;
+                    }
+                }
                 if (header[0] == 0xFF && header[1] == 0xD8) return ".jpg";
                 if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47) return ".png";
                 if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46) return ".gif";

@@ -17,7 +17,6 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
-using GB_CadAndSWPlus_V.DisplayPages;
 using static Autodesk.AutoCAD.Features.PointCloud.PointCloudColorMapping.ClassificationRamp;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ListView;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.ToolTip;
