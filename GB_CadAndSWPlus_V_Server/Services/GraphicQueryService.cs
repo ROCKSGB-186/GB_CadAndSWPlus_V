@@ -46,6 +46,78 @@ public sealed class GraphicQueryService
         }
     }
 
+    public async Task<GraphicListResponse> GetAllActiveAsync(CancellationToken cancellationToken = default)
+    {
+        string databaseType = GetDatabaseType();
+        try
+        {
+            var files = databaseType == "DM"
+                ? await QueryAllActiveDmAsync(cancellationToken).ConfigureAwait(false)
+                : await QueryAllActiveMySqlAsync(cancellationToken).ConfigureAwait(false);
+
+            return new GraphicListResponse
+            {
+                Success = true,
+                Message = "文件查询成功",
+                Files = files
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "查询全部有效图元失败。DatabaseType={DatabaseType}", databaseType);
+            throw;
+        }
+    }
+
+    private async Task<IReadOnlyList<GraphicDto>> QueryAllActiveMySqlAsync(CancellationToken cancellationToken)
+    {
+        const string sql = @"
+            SELECT id AS Id, category_id AS CategoryId, category_type AS CategoryType,
+                   file_attribute_id AS FileAttributeId, file_name AS FileName,
+                   file_stored_name AS FileStoredName, display_name AS DisplayName,
+                   file_type AS FileType, file_hash AS FileHash, block_name AS BlockName,
+                   layer_name AS LayerName, color_index AS ColorIndex, scale AS Scale,
+                   file_path AS FilePath, preview_image_name AS PreviewImageName,
+                   preview_image_path AS PreviewImagePath, file_size AS FileSize,
+                   is_preview AS IsPreview, version AS Version, description AS Description,
+                   is_active AS IsActive, created_by AS CreatedBy, title AS Title,
+                   keywords AS Keywords, is_public AS IsPublic, updated_by AS UpdatedBy,
+                   last_accessed_at AS LastAccessedAt, created_at AS CreatedAt,
+                   updated_at AS UpdatedAt
+            FROM cad_file_storage
+            WHERE is_active = 1
+            ORDER BY created_at DESC";
+
+        await using var connection = new MySqlConnection(GetConnectionString("MySQL"));
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        return (await connection.QueryAsync<GraphicDto>(new CommandDefinition(sql, cancellationToken: cancellationToken)).ConfigureAwait(false)).AsList();
+    }
+
+    private async Task<IReadOnlyList<GraphicDto>> QueryAllActiveDmAsync(CancellationToken cancellationToken)
+    {
+        string schema = GetSchemaName();
+        string sql = $@"
+            SELECT id AS Id, category_id AS CategoryId, category_type AS CategoryType,
+                   file_attribute_id AS FileAttributeId, file_name AS FileName,
+                   file_stored_name AS FileStoredName, display_name AS DisplayName,
+                   file_type AS FileType, file_hash AS FileHash, block_name AS BlockName,
+                   layer_name AS LayerName, color_index AS ColorIndex, scale AS Scale,
+                   file_path AS FilePath, preview_image_name AS PreviewImageName,
+                   preview_image_path AS PreviewImagePath, file_size AS FileSize,
+                   is_preview AS IsPreview, version AS Version, description AS Description,
+                   is_active AS IsActive, created_by AS CreatedBy, title AS Title,
+                   keywords AS Keywords, is_public AS IsPublic, updated_by AS UpdatedBy,
+                   last_accessed_at AS LastAccessedAt, created_at AS CreatedAt,
+                   updated_at AS UpdatedAt
+            FROM {schema}.CAD_FILE_STORAGE
+            WHERE is_active = 1
+            ORDER BY created_at DESC";
+
+        await using var connection = new DmConnection(GetConnectionString("DM"));
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        return (await connection.QueryAsync<GraphicDto>(new CommandDefinition(sql, cancellationToken: cancellationToken)).ConfigureAwait(false)).AsList();
+    }
+
     private async Task<IReadOnlyList<GraphicDto>> QueryMySqlAsync(int categoryId, string categoryType, CancellationToken cancellationToken)
     {
         const string sql = @"

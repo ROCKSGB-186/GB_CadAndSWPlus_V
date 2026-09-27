@@ -1,9 +1,6 @@
 using GB_CadAndSWPlus_V.FunctionalMethod;
-using System.Data;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using Application = Autodesk.AutoCAD.ApplicationServices.Application; // JavaScriptSerializer（用于 JSON 序列化/反序列化，兼容 .NET Framework 4.8）
 
@@ -124,12 +121,9 @@ namespace GB_CadAndSWPlus_V.Helpers
 
 
 
-    /// <summary>
-    /// 为 DatabaseManager 增加图层字典相关的扩展方法（创建表、查询、保存、删除）
-    /// 说明：表结构使用 mappings_json 列存储任意数量的映射对（JSON 格式）。
-    /// </summary>
-    public static class DatabaseManagerLayerDictionaryExtensions
-    {
+    /* Legacy DatabaseManager layer-dictionary extensions were removed.
+       Layer dictionary persistence is handled through LayerDictionaryApiService. */
+    /*
         /// <summary>
         /// 如果不存在则创建 layer_dictionary 表（幂等）
         /// 注意：新增列 mappings_json 用于保存任意数量的映射对（JSON）
@@ -178,7 +172,7 @@ END;";
                     {
                         LogManager.Instance.LogInfo($"CreateLayerDictionaryTableIfNotExistsAsync: 建表执行失败: {exCmd.Message}");
                         return false;
-                    }
+    }
                 }
 
                 return true;
@@ -468,4 +462,5 @@ VALUES
             }
         }
     }
+    */
 }

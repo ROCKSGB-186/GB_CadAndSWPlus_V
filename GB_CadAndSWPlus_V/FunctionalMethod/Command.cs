@@ -627,7 +627,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
 
                             var wpfWindows = new WpfMainWindow();//初始化这个图库管理窗体；
 
-                            // 如果登录窗口已经创建了成功的数据库连接，直接注入到主窗体中，避免其 Loaded 事件再次触发登录弹窗
+                            // 登录窗口创建的数据库实例仅注入给旧版 CAD 兼容路径；
+                            // 图元、分类、用户和文件业务仍由主窗体通过 API 健康检查决定。
                             if (login.CreatedDatabaseManager != null)
                             {
                                 wpfWindows.SetInitialDatabase(login.CreatedDatabaseManager);

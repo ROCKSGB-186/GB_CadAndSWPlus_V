@@ -139,12 +139,18 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private List<CategoryTreeNode> _categoryTreeNodes = new List<CategoryTreeNode>();
         /// <summary>
+        /// 当前分类文件加载请求版本，防止旧分类的异步响应覆盖新选择。
+        /// </summary>
+        private long _categoryFileLoadVersion;
+        /// <summary>
         /// 数据库管理器实例（外部注入或内部创建）
         /// </summary>
         private DatabaseManager? _databaseManager;
         private readonly GraphicApiService _graphicApiService = new GraphicApiService();
         private readonly AuthUserDepartmentApiService _apiService = new AuthUserDepartmentApiService();
         private readonly DepartmentApiService _departmentApiService = new DepartmentApiService();
+        private readonly HealthApiService _healthApiService = new HealthApiService();
+        private readonly SystemConfigApiService _systemConfigApiService = new SystemConfigApiService();
         /// <summary>
         /// 规范管理 API 服务，负责目录查询和文件预览请求。
         /// </summary>
@@ -179,9 +185,9 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private string? _syncLocalRoot;
         /// <summary>
-        /// 是否使用数据库模式（在线）还是离线资源模式
+        /// API 是否可用。已迁移的服务器业务以此状态为准。
         /// </summary>
-        private bool _useDatabaseMode = true;
+        private bool _isApiAvailable;
         /// <summary>
         /// 当前选中的数据库类型（"DM" 或 "MYSQL"）
         /// </summary>
@@ -676,8 +682,8 @@ namespace GB_CadAndSWPlus_V
 
             try
             {
-                // 如果分类名集合为空且数据库可用，则尝试加载分类名
-                if ((_categoryNames == null || _categoryNames.Count == 0) && _databaseManager != null && _databaseManager.IsDatabaseAvailable)
+                // 分类名称通过 10010 分类接口加载，不再以客户端 DatabaseManager 状态作为前置条件。
+                if (_categoryNames == null || _categoryNames.Count == 0)
                     await LoadCategoryNamesAsync();
             }
             catch (Exception ex)
@@ -721,6 +727,110 @@ namespace GB_CadAndSWPlus_V
         }
 
         /// <summary>
+        /// 解析运行目录下的本地 Resources 子目录。
+        /// </summary>
+        private static string ResolveLocalResourcesDirectory(string? folderName = null)
+        {
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string resourcesDirectory = Path.Combine(baseDirectory, "Resources");
+            return string.IsNullOrWhiteSpace(folderName)
+                ? resourcesDirectory
+                : Path.Combine(resourcesDirectory, folderName);
+        }
+
+        /// <summary>
+        /// 校验单个本地 DWG：路径必须存在、是文件、扩展名正确且长度大于零。
+        /// </summary>
+        private static bool TryValidateLocalDwgPath(
+            string? filePath,
+            out string validPath,
+            out string reason)
+        {
+            validPath = string.Empty;
+            reason = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                reason = "路径为空";
+                return false;
+            }
+
+            try
+            {
+                string fullPath = Path.GetFullPath(filePath);
+                if (!string.Equals(Path.GetExtension(fullPath), ".dwg", StringComparison.OrdinalIgnoreCase))
+                {
+                    reason = $"不是 DWG 文件：{fullPath}";
+                    return false;
+                }
+
+                if (!File.Exists(fullPath))
+                {
+                    reason = $"文件不存在：{fullPath}";
+                    return false;
+                }
+
+                var info = new FileInfo(fullPath);
+                if (info.Length <= 0)
+                {
+                    reason = $"文件为空：{fullPath}";
+                    return false;
+                }
+
+                validPath = info.FullName;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                reason = $"路径检查失败：{filePath}，{ex.Message}";
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 启动时递归检查本地 Resources 下的 DWG 文件，只记录汇总结果，不阻断启动。
+        /// </summary>
+        private void ValidateLocalResourceIntegrity()
+        {
+            try
+            {
+                string resourcesDirectory = ResolveLocalResourcesDirectory();
+                if (!Directory.Exists(resourcesDirectory))
+                {
+                    LogManager.Instance.LogWarning($"本地 Resources 目录不存在：{resourcesDirectory}");
+                    return;
+                }
+
+                string[] files = Directory.GetFiles(resourcesDirectory, "*", SearchOption.AllDirectories)
+                    .Where(path => string.Equals(Path.GetExtension(path), ".dwg", StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                int invalidCount = 0;
+                foreach (string file in files)
+                {
+                    if (!TryValidateLocalDwgPath(file, out _, out string reason))
+                    {
+                        invalidCount++;
+                        LogManager.Instance.LogWarning($"本地 DWG 资源无效：{reason}");
+                    }
+                }
+
+                LogManager.Instance.LogInfo(
+                    $"本地 Resources 完整性校验完成：目录={resourcesDirectory}，DWG 总数={files.Length}，无效数={invalidCount}");
+            }
+            catch (Exception ex)
+            {
+                LogManager.Instance.LogError($"本地 Resources 完整性校验失败：{ex.Message}");
+            }
+        }
+
+        private static bool IsLocalFileStorage(FileStorage? fileStorage)
+        {
+            return fileStorage != null &&
+                   (string.Equals(fileStorage.CategoryType, "local", StringComparison.OrdinalIgnoreCase) ||
+                    fileStorage.Id <= 0);
+        }
+
+        /// <summary>
         /// 窗体 Loaded 事件处理器：延迟执行 UI/数据库初始化任务
         /// </summary>
         /// <param name="sender"></param>
@@ -730,6 +840,26 @@ namespace GB_CadAndSWPlus_V
             try
             {
                 VariableDictionary.wpfWindows_Status = true; // 标记 WPF 窗口已加载
+                _isApiAvailable = await _healthApiService.IsAvailableAsync();
+                LogManager.Instance.LogInfo($"主窗口加载：API 可用={_isApiAvailable}");
+
+                // 启动时仅记录本地 Resources 完整性，不因单个资源缺失阻断窗口加载。
+                ValidateLocalResourceIntegrity();
+
+                // 窗口加载时把已保存的比例同步回输入框，保证后续 CAD 命令读取到的比例与界面一致。
+                double drawingScale = LoadDrawingConfig();
+                if (drawingScale <= 0 || double.IsNaN(drawingScale) || double.IsInfinity(drawingScale))
+                {
+                    double.TryParse(TextBox绘图比例.Tag?.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out drawingScale);
+                }
+                if (drawingScale <= 0 || double.IsNaN(drawingScale) || double.IsInfinity(drawingScale))
+                {
+                    drawingScale = 100.0;
+                }
+                VariableDictionary.wpfTextBoxScale = drawingScale;
+                TextBox绘图比例.Text = drawingScale.ToString(CultureInfo.InvariantCulture);
+                LogManager.Instance.LogInfo($"WPF 绘图比例初始化完成: {drawingScale}");
+
                 if (!Directory.Exists(GetPath.PreviewCachePath))
                     Directory.CreateDirectory(GetPath.PreviewCachePath);
                 if (!Directory.Exists(GetPath.DwgCachePath))
@@ -740,18 +870,18 @@ namespace GB_CadAndSWPlus_V
                 var clientVersion = entryAsm?.GetName().Version?.ToString() ?? execAsm?.GetName().Version?.ToString() ?? "未知";
                 if (FindName("TextBox客户端版本") is TextBox clientVersionBox)
                     clientVersionBox.Text = clientVersion;
-                // 读取服务器端版本号（通过 DatabaseManager）
+                // 通过服务器 API 读取版本号；客户端不再直接访问配置数据库。
                 var serverVersionText = "未连接";
                 try
                 {
-                    if (_databaseManager != null)
+                    string? apiVersion = await _systemConfigApiService.GetAsync("Version").ConfigureAwait(true);
+                    if (apiVersion != null)
                     {
-                        string svr = await _databaseManager.GetSystemConfigValueAsync("Version").ConfigureAwait(true);
-                        serverVersionText = string.IsNullOrWhiteSpace(svr) ? "服务器未设置版本" : svr;
+                        serverVersionText = string.IsNullOrWhiteSpace(apiVersion) ? "服务器未设置版本" : apiVersion;
                     }
                     else
                     {
-                        serverVersionText = "本地未初始化数据库管理器";
+                        serverVersionText = "服务器未设置版本";
                     }
                 }
                 catch (Exception ex)
@@ -770,30 +900,21 @@ namespace GB_CadAndSWPlus_V
 
             try
             {
-                bool connected = false;// 是否能数据库连接
-                try
-                {
-                    connected = await EnsureDatabaseConnectedSingleEntryAsync();// 确保数据库连接（单入口方法，内部会处理连接字符串和实例创建）
-                    wpfMainWindowsIsOpenClose = true;// 标记主窗口已打开（可能在 EnsureDatabaseConnectedSingleEntryAsync 内部也会设置，视具体实现而定）
-                }
-                catch (Exception ex)
-                {
-                    LogManager.Instance.LogWarning("主窗口加载连接检测异常: " + ex.Message);
-                    connected = false;
-                }
+                bool connected = _isApiAvailable;
+                wpfMainWindowsIsOpenClose = true;
 
-                if (connected && _databaseManager != null)
+                if (connected)
                 {
-                    _useDatabaseMode = true; // 成功连接数据库，启用在线模式
-                    _fileManager = new FileManager(_databaseManager); // 初始化文件管理器实例
-                    _categoryManager = new CategoryManager(_databaseManager); // 初始化分类管理器实例
-                    try { ReinitializeDatabase(); } catch { } // 尝试重新初始化数据库连接（如果之前的连接参数不完整或需要刷新）
+                    _fileManager = new FileManager(); // 文件管理器通过 API 工作
+                    _categoryManager = new CategoryManager(); // 分类数据通过 API 获取
+                    try { RefreshApiData(); } catch { } // 刷新服务器 API 驱动的分类和图元面板
                     try { UpdateAdminTabsVisibility(); } catch { } // 尝试更新管理员标签页的可见性（基于数据库连接状态和用户角色）
                 }
                 else
                 {
-                    _useDatabaseMode = false; // 无法连接数据库，启用离线模式
-                    LogManager.Instance.LogInfo("主窗口启动：由于没有可用数据库连接或外部未注入成功，当前处于离线模式。");
+                    _categoryManager = new CategoryManager(); // 分类查询已走服务器 API
+                    _fileManager = new FileManager();
+                    LogManager.Instance.LogInfo("主窗口启动：API 不可用，当前处于离线模式。");
                 }
 
                 try { UpdateAdminTabsVisibility(); } catch (Exception ex) { LogManager.Instance.LogWarning("管理员标签页初始化异常: " + ex.Message); }
@@ -817,44 +938,33 @@ namespace GB_CadAndSWPlus_V
         /// 根据当前用户（VariableDictionary._userName 或界面用户名）显示/隐藏“管理员模块”与“部门\\人员模块”
         /// 仅当用户名为 "sa"、"admin"、"root" 或 达梦管理员 "SYSDBA"（不区分大小写）时才显示；否则折叠（Collapsed）
         ///</summary>
-        private void UpdateAdminTabsVisibility()
+        private async void UpdateAdminTabsVisibility()
         {
             try
             {
                 // 获取当前用户名（优先使用全局变量，再退回到设置界面输入）
                 // 优先获取原始用户名（保留大小写以便后续数据库查询），再构造小写用于简单白名单判断
-                var userNameRaw = VariableDictionary._userName;
+                var userNameRaw = VariableDictionary._userName ?? string.Empty;
                 var userName = userNameRaw.ToLowerInvariant();
                 // 白名单匹配：系统设置的3个常规管理员和达梦/MySQL的两个超级管理员
                 bool isAdmin = userName == "sa" || userName == "admin" || userName == "root" || userName == "sysdba";
 
-                // 若白名单未命中且数据库可用，则以 USERS 表中的 ROLE 字段为准进行角色判定（更灵活且可由管理员在 DB 中维护）
-                if (!isAdmin && _databaseManager != null && _databaseManager.IsDatabaseAvailable && !string.IsNullOrWhiteSpace(userNameRaw))
+                // 若白名单未命中，则通过 10010 用户接口读取 ROLE 字段进行角色判定。
+                if (!isAdmin && !string.IsNullOrWhiteSpace(userNameRaw))
                 {
                     try
                     {
-                        using (var conn = _databaseManager.GetConnection())
+                        var user = await new AuthUserDepartmentApiService()
+                            .GetUserByUsernameAsync(userNameRaw)
+                            .ConfigureAwait(true);
+                        if (user != null && user.IsActive)
                         {
-                            // 打开连接并确保 Schema 已设置（Connection_StateChange 会在打开时调用 ApplySchema）
-                            conn.Open();
-                            using (var cmd = conn.CreateCommand())
+                            var role = user.Role ?? string.Empty;
+                            var rl = role.ToLowerInvariant();
+                            // 常见的管理员角色标识：包含 admin、sysdba、或中文“管理员”关键词
+                            if (rl.Contains("admin") || rl.Contains("sysdba") || rl.Contains("管理员"))
                             {
-                                cmd.CommandText = "SELECT ROLE FROM USERS WHERE UPPER(USERNAME) = :u AND IS_ACTIVE = 1";
-                                var p = cmd.CreateParameter();
-                                p.ParameterName = "u";
-                                p.Value = userNameRaw.ToUpperInvariant();
-                                cmd.Parameters.Add(p);
-                                var obj = cmd.ExecuteScalar();
-                                if (obj != null && obj != DBNull.Value)
-                                {
-                                    var role = Convert.ToString(obj) ?? string.Empty;
-                                    var rl = role.ToLowerInvariant();
-                                    // 常见的管理员角色标识：包含 admin、sysdba、或中文“管理员”关键词
-                                    if (rl.Contains("admin") || rl.Contains("sysdba") || rl.Contains("管理员"))
-                                    {
-                                        isAdmin = true;
-                                    }
-                                }
+                                isAdmin = true;
                             }
                         }
                     }
@@ -1028,91 +1138,34 @@ namespace GB_CadAndSWPlus_V
 
         #region 数据库初始化/检测/重置（与 DatabaseManager 协作）
 
-        /// 外部注入 DatabaseManager（例如在程序外部创建后调用）
+        /// 外部注入旧版 CAD 兼容所需的 DatabaseManager。
+        /// 该方法不代表 API 已连接；API 状态由 HealthApiService 独立维护。
         public void SetInitialDatabase(DatabaseManager db)
         {
             if (db == null || !db.IsDatabaseAvailable) return;
             _databaseManager = db;
-            _useDatabaseMode = true;
             wpfMainWindowsIsOpenClose = true;
             
-            LogManager.Instance.LogInfo("WpfMainWindow: 已从外部注入数据库管理器并锁定联机状态。");
+            LogManager.Instance.LogInfo("WpfMainWindow: 已注入旧版 CAD 兼容数据库管理器，不改变 API 状态。");
         }
 
         /// <summary>
-        /// 尝试静默检测并建立数据库连接（不弹 UI 提示）
+        /// 刷新服务器 API 驱动的分类、图元面板和图层字典缓存。
         /// </summary>
-        /// <returns></returns>
-        private async Task<bool> EnsureDatabaseConnectedSilentAsync()
-        {
-            try
-            {
-                if (_databaseManager != null && _databaseManager.IsDatabaseAvailable) return true;
-                string dbtype = (VariableDictionary._databaseType ?? "DM").ToUpper().Trim();// 默认为达梦（DM），也支持 MYSQL
-                string defaultUser = dbtype == "MYSQL" ? "root" : "SYSDBA"; // MySQL 默认管理员是 root，达梦默认管理员是 SYSDBA
-                string defaultPwd = dbtype == "MYSQL" ? "123456" : "675756SGBsgb"; // MySQL 默认密码（强烈建议修改），达梦默认密码（强烈建议修改）
-                int defaultPort = dbtype == "MYSQL" ? 3308 : 3306; // MySQL 默认端口 3306 的变体，达梦默认端口 5236
-                string dbUser = string.IsNullOrWhiteSpace(VariableDictionary._dbUserName) ? defaultUser : VariableDictionary._dbUserName.Trim(); // 用户名如果未设置则使用默认管理员用户名
-                string dbPassword = string.IsNullOrWhiteSpace(VariableDictionary._dbPassWord) ? defaultPwd : VariableDictionary._dbPassWord; // 密码如果未设置则使用默认管理员密码
-                int dbPort = VariableDictionary._dataBaseServerPort > 0 ? VariableDictionary._dataBaseServerPort : defaultPort; // 端口如果未设置或无效则使用默认端口
-                string schemaName = string.IsNullOrWhiteSpace(VariableDictionary._dataBaseName) ? "CAD_SW_LIBRARY" : VariableDictionary._dataBaseName.Trim(); // 数据库名如果未设置则使用默认数据库名（达梦默认是 CAD_SW_LIBRARY，MySQL 也使用同名数据库）
-                if (string.IsNullOrEmpty(VariableDictionary._serverIP)) return false; // 没有服务器 IP 配置，无法连接数据库
-
-                // 先测试网络连通性（TCP）
-                if (!await Task.Run(() => LoginWindow.TestNetworkConnection(VariableDictionary._serverIP, dbPort)))
-                    return false;
-                string conn; // 根据数据库类型构建连接字符串（达梦和 MySQL 的连接字符串格式不同）
-                if (dbtype == "MYSQL")
-                    conn = $"Server={VariableDictionary._serverIP};Port={dbPort};Database={schemaName};Uid={dbUser};Pwd={dbPassword};Allow User Variables=True;"; // MySQL 连接字符串，包含允许用户变量（如果需要）
-                else
-                    conn = $"Server={VariableDictionary._serverIP};Port={dbPort};Schema={schemaName};User Id={dbUser};Password={dbPassword};";// 达梦连接字符串
-                // 尝试创建 DatabaseManager 实例并测试数据库可用性
-                var db = new DatabaseManager(conn);
-                if (db.IsDatabaseAvailable) // 连接成功且数据库可用，设置实例并返回成功
-                {
-                    _databaseManager = db; // 设置数据库管理器实例
-                    return true;
-                }
-            }
-            catch { /* 静默失败 */ }
-
-            return false;
-        }
-
-        /// <summary>
-        /// 确保数据库连接（单入口方法，内部会处理连接字符串和实例创建）
-        /// </summary>
-        /// <returns></returns>
-        private async Task<bool> EnsureDatabaseConnectedSingleEntryAsync()
-        {
-            if (_databaseManager != null && _databaseManager.IsDatabaseAvailable)
-            {
-                _useDatabaseMode = true;// 已经有可用的数据库连接实例，直接使用在线模式
-                return true;
-            }
-            // 首次尝试连接数据库（可能在 WpfMainWindow_Loaded 中调用，或外部调用 SetInitialDatabase 后调用）
-            bool connected = await EnsureDatabaseConnectedSilentAsync();
-            _useDatabaseMode = connected;// 根据连接结果设置在线/离线模式标志
-            return connected;
-        }
-
-        /// <summary>
-        /// 重新初始化数据库相关缓存与 UI（在连接成功后调用）
-        /// </summary>
-        private async void ReinitializeDatabase()
+        private async void RefreshApiData()
         {
             try
             {
                 await LoadCategoryNamesAsync();// 重新加载分类名称集合（供下拉列表使用）
                 if (_categoryManager != null)
-                    await _categoryManager.RefreshCategoryTreeAsync(_selectedCategoryNode, _categoryTreeView, _categoryTreeNodes, _databaseManager); // 刷新分类树（保持当前选中节点）
-                LogManager.Instance.LogInfo("数据库连接已重新初始化");
+                    await _categoryManager.RefreshCategoryTreeAsync(_selectedCategoryNode, _categoryTreeView, _categoryTreeNodes); // 刷新分类树（保持当前选中节点）
+                LogManager.Instance.LogInfo("服务器 API 数据已刷新");
                 await RefreshAllCategoryPanelsAsync();// 刷新所有主分类面板（按主分类名称依次触发加载）
             }
             catch (Exception ex)
             {
-                LogManager.Instance.LogInfo("重新初始化数据库时出错: " + ex.Message);
-                MessageBox.Show("重新初始化数据库失败: " + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Hand);
+                LogManager.Instance.LogInfo("刷新服务器 API 数据时出错: " + ex.Message);
+                MessageBox.Show("刷新服务器 API 数据失败: " + ex.Message, "错误", MessageBoxButton.OK, MessageBoxImage.Hand);
             }
         }
 
@@ -1127,10 +1180,10 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                // 检查数据库管理器是否可用，若不可用则跳过刷新并记录日志
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
+                // 分类面板数据通过 API 获取，使用 API 健康状态判断是否刷新。
+                if (!_isApiAvailable)
                 {
-                    LogManager.Instance.LogInfo("RefreshAllCategoryPanelsAsync：数据库不可用，跳过面板刷新");
+                    LogManager.Instance.LogInfo("RefreshAllCategoryPanelsAsync：API 不可用，跳过面板刷新");
                     return;
                 }
 
@@ -1412,6 +1465,24 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private async Task<string> EnsureLocalCachedFilePathAsync(FileStorage fileStorage)
         {
+            if (IsLocalFileStorage(fileStorage))
+            {
+                if (TryValidateLocalDwgPath(fileStorage.FilePath, out string localPath, out string reason))
+                    return localPath;
+
+                LogManager.Instance.LogWarning($"本地图元不可用，已禁止回退服务器下载：{reason}");
+                return string.Empty;
+            }
+
+            // 本地 Resources 图元不应进入服务器下载流程。按钮创建时保存的是已解析的物理路径，
+            // 这里直接返回该路径，确保离线单击、双击和拖拽都能复用统一插入链路。
+            if (fileStorage != null &&
+                !string.IsNullOrWhiteSpace(fileStorage.FilePath) &&
+                File.Exists(fileStorage.FilePath))
+            {
+                return fileStorage.FilePath;
+            }
+
             // 内部方法已包含“有则返回，无则下载”的逻辑
             return await ServerFileService.EnsureDwgCacheAsync(fileStorage, GetPath.DwgCachePath);
         }
@@ -1423,6 +1494,24 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private async Task<string?> EnsureLocalPreviewCacheAsync(FileStorage fileStorage)
         {
+            if (IsLocalFileStorage(fileStorage))
+            {
+                if (!string.IsNullOrWhiteSpace(fileStorage.PreviewImagePath) &&
+                    File.Exists(fileStorage.PreviewImagePath))
+                    return fileStorage.PreviewImagePath;
+
+                return null;
+            }
+
+            // 本地图元没有服务器预览记录；如果 FilePath 指向图片或已有本地预览，
+            // 允许公共预览流程直接使用，避免离线模式触发 API 下载。
+            if (fileStorage != null &&
+                !string.IsNullOrWhiteSpace(fileStorage.PreviewImagePath) &&
+                File.Exists(fileStorage.PreviewImagePath))
+            {
+                return fileStorage.PreviewImagePath;
+            }
+
             // 内部方法已包含“有则返回，无则下载”的逻辑
             return await ServerFileService.EnsurePreviewCacheAsync(fileStorage, GetPath.PreviewCachePath);
         }
@@ -1514,7 +1603,7 @@ namespace GB_CadAndSWPlus_V
                 LogManager.Instance.LogInfo($"[点击] 处理图元: {file.FileName}, 原始路径: {file.FilePath}");
 
                 // 3. 在线模式：优先使用本地缓存
-                if (_useDatabaseMode && _databaseManager != null)
+                if (_isApiAvailable)
                 {
 
                     // 3.1 获取 DWG 本地缓存路径（内部已包含“有则返回，无则下载”）
@@ -1744,16 +1833,24 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                // 分类树尚未完成初始化时，先从服务器重新加载一次分类数据。
-                if (_categoryTreeNodes == null || _categoryTreeNodes.Count == 0)
-                    await InitializeCategoryTreeAsync();
-
                 var panel = GetPanelByFolderName(categoryName);// 根据分类名称获取对应的 WrapPanel
                 if (panel == null)
                 {
                     LogManager.Instance.LogWarning($"未找到分类 {categoryName} 对应的按钮面板。");
                     return;
                 }
+
+                // 离线模式直接读取 Resources，不能先依赖服务器分类树或异常回退。
+                if (!_isApiAvailable)
+                {
+                    panel.Children.Clear();
+                    LoadButtonsFromResources(categoryName, panel);
+                    return;
+                }
+
+                // 分类树尚未完成初始化时，先从服务器重新加载一次分类数据。
+                if (_categoryTreeNodes == null || _categoryTreeNodes.Count == 0)
+                    await InitializeCategoryTreeAsync();
 
                 // 清除旧按钮，避免重复加载和旧分类按钮残留。
                 panel.Children.Clear();
@@ -1781,6 +1878,13 @@ namespace GB_CadAndSWPlus_V
                 }
                 panel.Children.Clear();
 
+                if (!_isApiAvailable)
+                {
+                    LogManager.Instance.LogInfo("API 不可用，使用 Resources 本地模式加载 " + categoryName);
+                    LoadButtonsFromResources(categoryName, panel);
+                    return;
+                }
+
                 LogManager.Instance.LogInfo("使用服务器模式加载 " + categoryName);
                 _ = LoadButtonsFromDatabaseForCategory(categoryName, panel);
             }
@@ -1799,6 +1903,12 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
+                if (!_isApiAvailable)
+                {
+                    LoadButtonsFromResources(categoryName, panel);
+                    return;
+                }
+
                 // 记录开始加载日志
                 LogManager.Instance.LogInfo($"=== 开始从数据库加载分类 {categoryName} ===");
 
@@ -2007,9 +2117,45 @@ namespace GB_CadAndSWPlus_V
                 // 封装在 ButtonTagCommandInfo 中的方式（兼容性强，包含类型区分和额外信息）
                 case ButtonTagCommandInfo info:
                     if (info.fileStorage != null) return info.fileStorage; // 优先使用已封装的 FileStorage 对象
+
+                    // Resources 本地图元按钮使用 FilePath 保存物理 DWG 路径。
+                    // 转换为最小 FileStorage 对象后，单击、双击、拖拽和预览可以共用在线链路。
+                    if (!string.IsNullOrWhiteSpace(info.FilePath) && File.Exists(info.FilePath))
+                    {
+                        return CreateLocalFileStorage(info.FilePath, info.ButtonName);
+                    }
                     break;
             }
             return null;
+        }
+
+        /// <summary>
+        /// 将 Resources 中的本地 DWG 转换为供公共交互链路使用的 FileStorage 对象。
+        /// Id 保持为 0，CategoryType 标记为 local，避免被误认为服务器记录。
+        /// </summary>
+        private static FileStorage CreateLocalFileStorage(string filePath, string buttonName)
+        {
+            var fileInfo = new FileInfo(filePath);
+            var fileName = fileInfo.Name;
+            var displayName = string.IsNullOrWhiteSpace(buttonName)
+                ? Path.GetFileNameWithoutExtension(fileName)
+                : buttonName.Trim();
+
+            return new FileStorage
+            {
+                Id = 0,
+                CategoryType = "local",
+                FileName = fileName,
+                FileStoredName = fileName,
+                DisplayName = displayName,
+                FileType = fileInfo.Extension,
+                FilePath = fileInfo.FullName,
+                FileSize = fileInfo.Exists ? fileInfo.Length : 0,
+                IsActive = 1,
+                IsPublic = 1,
+                CreatedAt = fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.MinValue,
+                UpdatedAt = fileInfo.Exists ? fileInfo.LastWriteTime : DateTime.MinValue
+            };
         }
 
         /// <summary>
@@ -2301,8 +2447,7 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                var baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                var path = Path.Combine(baseDir, "Resources", folderName);
+                var path = ResolveLocalResourcesDirectory(folderName);
                 if (!Directory.Exists(path))
                 {
                     MessageBox.Show($"找不到资源文件夹: {path}\n请检查Resources文件夹中的'{folderName}'文件夹是否存在");
@@ -2320,7 +2465,9 @@ namespace GB_CadAndSWPlus_V
                     var header = new TextBlock { Text = name, FontSize = 12, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 5, 0, 5), Foreground = new SolidColorBrush(Colors.DarkBlue) };
                     sp.Children.Add(header);
 
-                    var files = Directory.GetFiles(dir, "*.dwg");
+                        var files = Directory.GetFiles(dir, "*.dwg", SearchOption.TopDirectoryOnly)
+                            .Where(path => TryValidateLocalDwgPath(path, out _, out _))
+                            .ToArray();
                     if (files.Length > 0)
                     {
                         var tuples = new List<Tuple<string, string>>();
@@ -2348,7 +2495,21 @@ namespace GB_CadAndSWPlus_V
                                     int last = cmdName.LastIndexOf('_');
                                     cmdName = last < 0 || last + 1 >= cmdName.Length ? cmdName.Trim() : cmdName.Substring(last + 1).Trim();
                                 }
-                                var btn = new Button { Content = cmdName, Width = 88, Height = 20, FontSize = 12, FontFamily = new FontFamily("微软雅黑"), Margin = new Thickness(0, 0, 3, 0), Tag = new ButtonTagCommandInfo { Type = "File", ButtonName = cmdName, FilePath = filePath } };
+                                var btn = new Button
+                                {
+                                    Content = cmdName,
+                                    Width = 88,
+                                    Height = 20,
+                                    FontSize = 12,
+                                    FontFamily = new FontFamily("微软雅黑"),
+                                    Margin = new Thickness(0, 0, 3, 0),
+                                    Tag = new ButtonTagCommandInfo
+                                    {
+                                        Type = "File",
+                                        ButtonName = cmdName,
+                                        FilePath = filePath
+                                    }
+                                };
                                 AttachDynamicButtonHandlers(btn);
                                 row.Children.Add(btn);
                             }
@@ -2445,21 +2606,19 @@ namespace GB_CadAndSWPlus_V
         }
 
         /// <summary>
-        /// 获取某专业的条件文件列表（优先从 DB，否则回退到资源）
+        /// 获取某专业的条件文件列表。
+        /// 当前条件文件来自客户端资源；如后续迁移到服务器，可在此替换为 API 查询。
         /// </summary>
-        private async Task<List<ConditionFileInfo>> GetConditionFilesForSpecialty(string specialtyName)
+        private Task<List<ConditionFileInfo>> GetConditionFilesForSpecialty(string specialtyName)
         {
-            var result = new List<ConditionFileInfo>();
             try
             {
-                if (_databaseManager == null) return GetConditionFilesFromResources(specialtyName);
-                // TODO: 若数据库中存储专用条件文件，可在这里实现 DB 查询逻辑
-                return GetConditionFilesFromResources(specialtyName);
+                return Task.FromResult(GetConditionFilesFromResources(specialtyName));
             }
             catch (Exception ex)
             {
                 LogManager.Instance.LogInfo($"获取{specialtyName}条件文件时出错: {ex.Message}");
-                return result;
+                return Task.FromResult(new List<ConditionFileInfo>());
             }
         }
 
@@ -2678,13 +2837,6 @@ namespace GB_CadAndSWPlus_V
                     return;
                 }
 
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                {
-                    LogManager.Instance.LogWarning("数据库管理器不可用");
-                    PropertiesDataGrid.ItemsSource = null;
-                    return;
-                }
-
                 Dictionary<string, string> attributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 // ---- 1. 优先按 FileHash 查询 ----
@@ -2692,10 +2844,10 @@ namespace GB_CadAndSWPlus_V
                 {
                     try
                     {
-                        // GetFileStorageWithAttributesByHashAsync 返回一个 Tuple<FileStorage, Dictionary<string, string>>，我们取其中的属性字典
-                        var fileStorageWithAttributes = await _databaseManager.GetFileStorageWithAttributesByHashAsync(fileStorage.FileHash);
-                        if (fileStorageWithAttributes.Item2 != null)
-                            attributes = fileStorageWithAttributes.Item2;
+                        GraphicApiService.GraphicDetails? details = await _graphicApiService
+                            .GetDetailsByHashAsync(fileStorage.FileHash);
+                        if (details?.Attributes != null)
+                            attributes = details.Attributes;
 
                         LogManager.Instance.LogInfo(attributes.Count > 0
                             ? $"按 Hash={fileStorage.FileHash} 加载属性成功，条数={attributes.Count}"
@@ -2716,10 +2868,11 @@ namespace GB_CadAndSWPlus_V
                 {
                     try
                     {
-                        var fallback = await _databaseManager.GetAttributesJsonByFileIdAsync(fileStorage.Id, fileStorage.FileAttributeId);
-                        if (fallback != null && fallback.Count > 0)
+                        GraphicApiService.GraphicDetails? fallback = await _graphicApiService
+                            .GetDetailsByIdAsync(fileStorage.Id);
+                        if (fallback?.Attributes != null && fallback.Attributes.Count > 0)
                         {
-                            attributes = fallback;
+                            attributes = fallback.Attributes;
                             LogManager.Instance.LogInfo($"按 FileId={fileStorage.Id} 兜底加载属性成功，条数={attributes.Count}");
                         }
                         else
@@ -3008,7 +3161,7 @@ namespace GB_CadAndSWPlus_V
                     // 优先使用 InsertGraphicHelper 的快速插入，如果存在该工具
                     try
                     {
-                        InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(localDwgPath, insertContext);
+                        InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(localDwgPath, insertContext, showPropertyEditor: true);
                         return (true, string.Empty);
                     }
                     catch (Exception ex)
@@ -3280,26 +3433,10 @@ namespace GB_CadAndSWPlus_V
                 }
                 LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤2 通过: 用户 '{userName}' 具有管理员权限");
 
-                // ==================== 步骤3：数据库可用性检查 ====================
-                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤3: 检查数据库可用性");
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                {
-                    LogManager.Instance.LogWarning($"[ReplacePreview|{traceId}] 步骤3 失败: 数据库不可用");
-                    MessageBox.Show("数据库不可用，无法替换预览图。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤3 通过: 数据库连接可用");
-
-                // ==================== 步骤4：从数据库获取最新记录 ====================
-                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤4: 从数据库获取最新记录 (ID={storage.Id})");
-                FileStorage? latest = await _databaseManager.GetFileByIdAsync(storage.Id);
-                if (latest == null)
-                {
-                    LogManager.Instance.LogWarning($"[ReplacePreview|{traceId}] 步骤4 失败: 数据库中未找到 ID={storage.Id} 的记录");
-                    MessageBox.Show("数据库中未找到该图元记录，可能已被删除。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤4 完成: 获取到最新记录, 原预览图路径={latest.PreviewImagePath ?? "无"}");
+                // API 迁移后，替换预览图不应依赖客户端 DM 直连或本地数据库回查。
+                // 当前按钮记录已经包含服务器存储 ID，服务器 API 会负责校验记录是否存在。
+                FileStorage latest = storage;
+                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤3/4 跳过客户端数据库，使用 API 校验 StorageId={latest.Id}");
 
                 // ==================== 步骤5：选择新预览图 ====================
                 LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤5: 打开文件选择对话框");
@@ -3354,18 +3491,11 @@ namespace GB_CadAndSWPlus_V
                 ClearPreviewCache(latest);
                 LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤8 完成: 缓存已清理");
 
-                // ==================== 步骤9：从数据库重新获取最新记录（服务器已更新） ====================
-                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤9: 从数据库重新获取最新记录（验证更新结果）");
-                FileStorage? refreshed = await _databaseManager.GetFileByIdAsync(storage.Id);
-                if (refreshed != null)
-                {
-                    LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤9 完成: 新预览图路径={refreshed.PreviewImagePath}, 新预览图名={refreshed.PreviewImageName}");
-                }
-                else
-                {
-                    LogManager.Instance.LogWarning($"[ReplacePreview|{traceId}] 步骤9: 无法获取更新后的记录");
-                    refreshed = latest; // 使用旧记录作为回退
-                }
+                // ==================== 步骤9：使用 API 返回后的本地记录刷新预览 ====================
+                FileStorage refreshed = latest;
+                refreshed.PreviewImageName = Path.GetFileName(newPreviewLocalPath);
+                refreshed.PreviewImagePath = newPreviewLocalPath;
+                LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤9: 已跳过客户端数据库回查，使用 API 成功结果刷新界面");
 
                 // ==================== 步骤10：刷新 UI ====================
                 LogManager.Instance.LogInfo($"[ReplacePreview|{traceId}] 步骤10: 刷新 UI 列表");
@@ -4219,12 +4349,7 @@ namespace GB_CadAndSWPlus_V
                     throw new InvalidOperationException("分类管理器未初始化，无法加载CAD分类树。");
                 }
 
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                {
-                    throw new InvalidOperationException("数据库管理器不可用，无法加载CAD分类树。");
-                }
-
-                await _categoryManager.LoadCategoryTreeAsync(_categoryTreeNodes, _databaseManager);
+                await _categoryManager.LoadCategoryTreeAsync(_categoryTreeNodes);
                 _categoryTreeView = CategoryTreeView;//赋值给全局变量
                 _categoryManager.DisplayCategoryTree(_categoryTreeView, _categoryTreeNodes);
             }
@@ -4382,14 +4507,7 @@ namespace GB_CadAndSWPlus_V
                 }
             }
 
-            // ============ 3. 数据库可用性检查 ============
-            if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-            {
-                MessageBox.Show("数据库不可用，无法删除图元。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
-                return false;
-            }
-
-            // ============ 4. ID 有效性检查 ============
+            // ============ 3. ID 有效性检查 ============
             if (selected.Id <= 0)
             {
                 LogManager.Instance.LogWarning($"[{entryName}] 图元 ID 无效: {selected.Id}");
@@ -4397,21 +4515,20 @@ namespace GB_CadAndSWPlus_V
                 return false;
             }
 
-            // ============ 5. 获取服务器端最新记录（保证路径等数据正确） ============
+            // ============ 4. 获取服务器端最新记录（保证显示名称等数据正确） ============
             FileStorage fullRecord = selected;
             try
             {
-                var latest = await _databaseManager.GetFileByIdAsync(selected.Id).ConfigureAwait(true);
-                if (latest != null)
+                GraphicApiService.GraphicDetails? details = await _graphicApiService
+                    .GetDetailsByIdAsync(selected.Id).ConfigureAwait(true);
+                if (details?.File != null)
                 {
-                    fullRecord = latest;
-                    LogManager.Instance.LogInfo($"[{entryName}] 已获取最新数据库记录: {fullRecord.DisplayName} (ID={fullRecord.Id})");
+                    fullRecord = details.File;
+                    LogManager.Instance.LogInfo($"[{entryName}] 已通过 API 获取最新图元记录: {fullRecord.DisplayName} (ID={fullRecord.Id})");
                 }
                 else
                 {
-                    // 数据库已查不到记录，但仍可能残留在本地，继续尝试清理
-                    LogManager.Instance.LogWarning($"[{entryName}] 数据库中未找到该记录 (ID={selected.Id})，将仅清理客户端缓存");
-                    fullRecord = selected; // 使用传入对象继续后续清理
+                    LogManager.Instance.LogWarning($"[{entryName}] API 中未找到该记录 (ID={selected.Id})");
                 }
             }
             catch (Exception ex)
@@ -4420,7 +4537,7 @@ namespace GB_CadAndSWPlus_V
                 fullRecord = selected;
             }
 
-            // ============ 6. 确认提示 ============
+            // ============ 5. 确认提示 ============
             string selectedName = fullRecord.DisplayName ?? fullRecord.FileName ?? $"ID={fullRecord.Id}";
             var confirm = MessageBox.Show(
                 $"确定删除图元：{selectedName} ?\n该操作将删除主记录、属性JSON、标签/日志及关联物理文件，且不可恢复。",
@@ -4433,51 +4550,20 @@ namespace GB_CadAndSWPlus_V
 
             LogManager.Instance.LogInfo($"[{entryName}] 用户确认删除: {selectedName} (ID={fullRecord.Id})");
 
-            // ============ 7. 删除物理文件（容错，失败不中断流程） ============
-            bool physicalDeleted = false;
-            if (_fileManager != null)
-            {
-                try
-                {
-                    await _fileManager.DeletePhysicalFilesAsync(_databaseManager, fullRecord, deleteBackupFiles: true);
-                    physicalDeleted = true;
-                    LogManager.Instance.LogInfo($"[{entryName}] 物理文件删除成功: {fullRecord.FilePath}");
-                }
-                catch (Exception exDeleteFile)
-                {
-                    LogManager.Instance.LogWarning($"[{entryName}] 删除服务器物理文件失败（继续执行数据库删除）: {exDeleteFile.Message}");
-                }
-            }
-
-            // ============ 8. 级联删除数据库记录 ============
-            bool dbDeleted = false;
+            // ============ 6. 由服务器事务删除数据库记录并清理物理文件 ============
             try
             {
-                // physicalDelete=false 时走软删除（is_active=0），为 true 则物理删除
-                dbDeleted = await _databaseManager.DeleteCadGraphicCascadeAsync(fullRecord.Id, physicalDelete: true);
-                if (!dbDeleted)
-                {
-                    LogManager.Instance.LogError($"[{entryName}] 数据库级联删除失败: {selectedName} (ID={fullRecord.Id})");
-                }
+                await _graphicApiService.DeleteAsync(fullRecord.Id).ConfigureAwait(true);
+                    LogManager.Instance.LogInfo($"[{entryName}] 已通过 API 删除图元及服务器物理文件: {selectedName} (ID={fullRecord.Id})");
             }
-            catch (Exception exDb)
+            catch (Exception exDelete)
             {
-                LogManager.Instance.LogError($"[{entryName}] 数据库删除异常: {exDb.Message}");
-            }
-
-            // ============ 9. 如果没有成功删除任何东西，报错 ============
-            if (!dbDeleted && !physicalDeleted)
-            {
-                MessageBox.Show("删除失败：物理文件和数据库记录均无法删除，请查看日志。", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                LogManager.Instance.LogError($"[{entryName}] 图元 API 删除异常: {exDelete.Message}");
+                MessageBox.Show($"删除失败：{exDelete.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
                 return false;
             }
-            else if (!dbDeleted)
-            {
-                // 物理已删但数据库失败
-                MessageBox.Show("物理文件已删除，但数据库记录删除失败，请查看日志并手动处理。", "部分成功", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
 
-            // ============ 10. 清理内存缓存 ============
+            // ============ 7. 清理内存缓存 ============
             try
             {
                 // 按路径键清理
@@ -4497,7 +4583,7 @@ namespace GB_CadAndSWPlus_V
                 LogManager.Instance.LogWarning($"[{entryName}] 清理预览缓存失败: {exCache.Message}");
             }
 
-            // ============ 11. 清理选择状态 ============
+            // ============ 8. 清理选择状态 ============
             if ((_selectedFileStorage != null && _selectedFileStorage.Id == fullRecord.Id) ||
                 (_currentFileStorage != null && _currentFileStorage.Id == fullRecord.Id))
             {
@@ -4507,7 +4593,7 @@ namespace GB_CadAndSWPlus_V
                 _selectedPreviewImagePath = null;
             }
 
-            // ============ 12. 清空详情区 ============
+            // ============ 9. 清空详情区 ============
             CategoryPropertiesDataGrid.ItemsSource = null;
             PropertiesDataGrid.ItemsSource = null;
             if (预览 != null) 预览.Source = null;
@@ -4522,7 +4608,7 @@ namespace GB_CadAndSWPlus_V
             try
             {
                 await RefreshFilesForCurrentCategoryAsync();
-                if (_useDatabaseMode && _databaseManager.IsDatabaseAvailable)
+                if (_isApiAvailable)
                 {
                     await RefreshAllCategoryPanelsAsync();
                 }
@@ -4535,11 +4621,8 @@ namespace GB_CadAndSWPlus_V
 
             // ============ 14. 成功返回 ============
             LogManager.Instance.LogInfo($"[{entryName}] 删除完成: {selectedName} (ID={fullRecord.Id})");
-            if (dbDeleted)
-            {
-                MessageBox.Show("删除成功。", "信息", MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            return dbDeleted;
+            MessageBox.Show("删除成功。", "信息", MessageBoxButton.OK, MessageBoxImage.Information);
+            return true;
         }
        
 
@@ -4640,7 +4723,7 @@ namespace GB_CadAndSWPlus_V
                 await RefreshFilesForCurrentCategoryAsync();
 
                 // 刷新九大主分类按钮面板（数据库模式）
-                if (_useDatabaseMode && _databaseManager != null && _databaseManager.IsDatabaseAvailable)
+                if (_isApiAvailable)
                 {
                     await RefreshAllCategoryPanelsAsync();
                 }
@@ -4757,21 +4840,13 @@ namespace GB_CadAndSWPlus_V
             if (storage == null)
                 return (false, "无法识别文件记录类型（需要 FileStorage）。");
 
-            if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                return (false, "数据库管理器未初始化或数据库不可用。");
-
             if (_fileManager == null)
                 return (false, "文件管理服务未初始化。");
 
             try
             {
                 // 统一调用 FileManager 的服务器侧替换逻辑，避免回退到本地缓存路径
-                await _fileManager.ReplaceGraphicFileAsync(_databaseManager, storage, localPath);
-
-                // 替换成功后统一回写数据库记录
-                bool dbOk = await _databaseManager.UpdateFileStorageAsync(storage);
-                if (!dbOk)
-                    return (false, "数据库更新失败（UpdateFileStorageAsync 返回 false）。");
+                await _fileManager.ReplaceGraphicFileAsync(storage, localPath);
 
                 return (true, string.Empty);
             }
@@ -5234,6 +5309,45 @@ namespace GB_CadAndSWPlus_V
         }
 
         /// <summary>
+        /// 重建分类树后恢复当前节点，并同步右侧图元列表。
+        /// </summary>
+        private async Task RefreshCategoryTreeAndFilesAsync()
+        {
+            CategoryTreeNode? previousNode = _selectedCategoryNode;
+            int previousNodeId = previousNode?.Id ?? 0;
+            int previousNodeLevel = previousNode?.Level ?? -1;
+
+            await _categoryManager.RefreshCategoryTreeAsync(
+                previousNode,
+                CategoryTreeView,
+                _categoryTreeNodes);
+
+            CategoryTreeNode? refreshedNode = previousNodeId > 0
+                ? FindCategoryTreeNode(_categoryTreeNodes, previousNodeId)
+                : null;
+
+            if (refreshedNode == null || refreshedNode.Level != previousNodeLevel)
+            {
+                ++_categoryFileLoadVersion;
+                _selectedCategoryNode = null;
+                _selectedFileStorage = null;
+                _currentFileStorage = null;
+                StroageFileDataGrid.SelectedItem = null;
+                StroageFileDataGrid.ItemsSource = null;
+                return;
+            }
+
+            _selectedCategoryNode = refreshedNode;
+            DisplayNodePropertiesForEditing(refreshedNode);
+
+            TreeViewItem? treeItem = GetTreeViewItem(CategoryTreeView, refreshedNode);
+            if (treeItem != null)
+                treeItem.IsSelected = true;
+
+            await LoadFilesForCategoryAsync(refreshedNode);
+        }
+
+        /// <summary>
         /// 添加手动刷新文件列表的方法
         /// </summary>
         /// <param name="sender"></param>
@@ -5279,26 +5393,27 @@ namespace GB_CadAndSWPlus_V
                 LogManager.Instance.LogInfo($"[加载CAD数据库] 设置当前数据库类型: {_currentDatabaseType}");
 
                 LogManager.Instance.LogInfo(
-                    $"[加载CAD数据库] 当前状态: useDatabaseMode={_useDatabaseMode}, " +
+                    $"[加载CAD数据库] 当前状态: apiAvailable={_isApiAvailable}, " +
                     $"databaseManagerNull={_databaseManager == null}, " +
                     $"databaseAvailable={_databaseManager?.IsDatabaseAvailable.ToString() ?? "null"}");
 
                 LogManager.Instance.LogInfo("[加载CAD数据库] 检查并建立数据库连接");
-                if (!await EnsureDatabaseConnectedSingleEntryAsync())
+                _isApiAvailable = await _healthApiService.IsAvailableAsync();
+                if (!_isApiAvailable)
                 {
-                    LogManager.Instance.LogError("[加载CAD数据库] 数据库连接不可用，加载终止");
-                    System.Windows.MessageBox.Show("数据库不可用，请检查数据库连接配置");
+                    LogManager.Instance.LogError("[加载CAD数据库] API 不可用，加载终止");
+                    System.Windows.MessageBox.Show("API 不可用，请检查服务器和 API 服务状态");
                     return;
                 }
 
                 if (_categoryManager == null)
                 {
                     LogManager.Instance.LogInfo("[加载CAD数据库] 分类管理器未初始化，正在创建");
-                    _categoryManager = new CategoryManager(_databaseManager!);
+                    _categoryManager = new CategoryManager();
                 }
 
                 LogManager.Instance.LogInfo("[加载CAD数据库] 开始读取CAD存储路径配置");
-                _cadStoragePath = await _databaseManager!.GetConfigValueAsync("cad_storage_path");
+                _cadStoragePath = await _systemConfigApiService.GetAsync("cad_storage_path");
                 LogManager.Instance.LogInfo(
                     $"[加载CAD数据库] CAD存储路径配置读取结果: " +
                     (string.IsNullOrWhiteSpace(_cadStoragePath) ? "为空，将使用默认路径" : _cadStoragePath));
@@ -5341,17 +5456,18 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                if (_databaseManager == null)
+                _isApiAvailable = await _healthApiService.IsAvailableAsync();
+                if (!_isApiAvailable)
                 {
-                    System.Windows.MessageBox.Show("数据库未初始化");
+                    System.Windows.MessageBox.Show("API 不可用，请检查服务器和 API 服务状态");
                     return;
                 }
 
                 // 设置当前数据库类型
                 _currentDatabaseType = "SW";
 
-                // 获取SW存储路径
-                _swStoragePath = await _databaseManager.GetConfigValueAsync("sw_storage_path");
+                // 通过 API 获取 SW 存储路径
+                _swStoragePath = await _systemConfigApiService.GetAsync("sw_storage_path");
                 if (string.IsNullOrEmpty(_swStoragePath))
                 {
                     _swStoragePath = System.IO.Path.Combine(AppPath, "SwFiles");
@@ -5531,8 +5647,7 @@ namespace GB_CadAndSWPlus_V
                 if (success)
                 {
                     // 刷新架构树
-                    await _categoryManager.RefreshCategoryTreeAsync(_selectedCategoryNode, CategoryTreeView, _categoryTreeNodes, _databaseManager);
-                    _selectedCategoryNode = null; // 清除选中节点
+                    await RefreshCategoryTreeAndFilesAsync();
                     InitializeCategoryPropertyGrid(); // 清空属性编辑区
 
                     MessageBox.Show("分类删除成功", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -5557,7 +5672,7 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                await _categoryManager.RefreshCategoryTreeAsync(_selectedCategoryNode, CategoryTreeView, _categoryTreeNodes, _databaseManager);
+                await RefreshCategoryTreeAndFilesAsync();
                 MessageBox.Show("架构树刷新成功", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
@@ -5792,7 +5907,7 @@ namespace GB_CadAndSWPlus_V
                     {
                         _currentOperation = ManagementOperationType.None;
                         InitializeCategoryPropertyGrid();
-                        await _categoryManager.RefreshCategoryTreeAsync(_selectedCategoryNode, CategoryTreeView, _categoryTreeNodes, _databaseManager);
+                        await RefreshCategoryTreeAndFilesAsync();
                         MessageBox.Show("操作成功，架构树已更新", "成功", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                 }
@@ -6179,7 +6294,24 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private void TextBox_绘图比例_TextChanged(object sender, TextChangedEventArgs e)
         {
-            //SaveDrawingConfig();
+            // 输入过程中可能出现空文本或小数点等暂时无法解析的状态，此时保留上一次有效比例。
+            string input = TextBox绘图比例?.Text?.Trim() ?? string.Empty;
+            if (!double.TryParse(input, NumberStyles.Any, CultureInfo.InvariantCulture, out double scale) &&
+                !double.TryParse(input, NumberStyles.Any, CultureInfo.CurrentCulture, out scale))
+            {
+                return;
+            }
+
+            // 比例分母必须为正数，避免 0、负数或无穷值进入绘图计算。
+            if (scale <= 0 || double.IsNaN(scale) || double.IsInfinity(scale))
+            {
+                return;
+            }
+
+            // 先同步全局变量，再保存配置；CAD 命令不需要跨线程直接访问 WPF 控件。
+            VariableDictionary.wpfTextBoxScale = scale;
+            LogManager.Instance.LogInfo($"WPF 绘图比例已更新: {scale}");
+            SaveDrawingConfig();
         }
         #endregion
 
@@ -6562,17 +6694,26 @@ namespace GB_CadAndSWPlus_V
             {
                 if (e.NewValue is CategoryTreeNode selectedNode)
                 {
+                    long loadVersion = ++_categoryFileLoadVersion;
                     _selectedCategoryNode = selectedNode;
+                    _selectedFileStorage = null;
+                    _currentFileStorage = null;
+                    StroageFileDataGrid.SelectedItem = null;
+                    StroageFileDataGrid.ItemsSource = null;
                     //LogManager.Instance.LogInfo($"选中分类节点: {selectedNode.DisplayText} (ID: {selectedNode.Id}, Level: {selectedNode.Level})");
                     LogManager.Instance.LogInfo($"选中分类节点: {selectedNode.DisplayText} (ID: {selectedNode.Id}, Level: {selectedNode.Level})");
                     // 根据选中的节点类型显示相应的属性编辑界面
                     DisplayNodePropertiesForEditing(selectedNode);
 
                     // 加载该分类下的文件
-                    await LoadFilesForCategoryAsync(selectedNode);
+                    await LoadFilesForCategoryAsync(selectedNode, loadVersion);
                 }
                 else
                 {
+                    ++_categoryFileLoadVersion;
+                    _selectedCategoryNode = null;
+                    _selectedFileStorage = null;
+                    _currentFileStorage = null;
                     LogManager.Instance.LogInfo("选中的节点为空或类型不正确");
                     StroageFileDataGrid.ItemsSource = null;
                 }
@@ -6741,10 +6882,11 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         /// <param name="categoryNode"></param>
         /// <returns></returns>
-        private async Task LoadFilesForCategoryAsync(CategoryTreeNode categoryNode)
+        private async Task LoadFilesForCategoryAsync(CategoryTreeNode categoryNode, long? requestedVersion = null)
         {
             try
             {
+                long loadVersion = requestedVersion ?? ++_categoryFileLoadVersion;
                 List<FileStorage> files = new List<FileStorage>();
 
                 //LogManager.Instance.LogInfo($"开始加载分类 {categoryNode.Id} ({categoryNode.DisplayText}) 的文件");
@@ -6774,12 +6916,20 @@ namespace GB_CadAndSWPlus_V
                 // 调试输出文件信息
                 DebugFileData(files);
 
-                // 确保在UI线程更新DataGrid
-                Dispatcher.Invoke(() =>
+                // 只允许当前分类对应的最后一次请求更新 DataGrid，避免旧请求乱序覆盖新分类。
+                if (loadVersion != _categoryFileLoadVersion
+                    || _selectedCategoryNode == null
+                    || _selectedCategoryNode.Id != categoryNode.Id
+                    || _selectedCategoryNode.Level != categoryNode.Level)
                 {
-                    StroageFileDataGrid.ItemsSource = files;
-                    LogManager.Instance.LogInfo($"DataGrid已更新，显示 {files.Count} 个文件");
-                });
+                    LogManager.Instance.LogInfo(
+                        $"忽略过期分类文件响应: 分类={categoryNode.DisplayText}, ID={categoryNode.Id}, 版本={loadVersion}");
+                    return;
+                }
+
+                StroageFileDataGrid.ItemsSource = files;
+                StroageFileDataGrid.SelectedItem = null;
+                LogManager.Instance.LogInfo($"DataGrid已更新，显示 {files.Count} 个文件");
 
                 // 如果没有文件，显示提示
                 if (files.Count == 0)
@@ -6862,7 +7012,8 @@ namespace GB_CadAndSWPlus_V
                         // 在 PreviewImage_Loaded 的异步 UI 更新段内，将错误的赋值改为具体的 Visibility 枚举值
                         await Dispatcher.InvokeAsync(() =>
                         {
-                            if (image != null)
+                            // DataGrid 虚拟化可能复用 Image，异步返回时必须确认仍对应原文件行。
+                            if (image != null && ReferenceEquals(image.Tag, fileStorage))
                             {
                                 image.Source = bitmap;
 
@@ -6886,7 +7037,7 @@ namespace GB_CadAndSWPlus_V
                         // 显示错误信息
                         await Dispatcher.InvokeAsync(() =>
                         {
-                            if (image != null)
+                            if (image != null && ReferenceEquals(image.Tag, fileStorage))
                             {
                                 image.Source = GetDefaultPreviewImage();
 
@@ -7092,23 +7243,20 @@ namespace GB_CadAndSWPlus_V
             {
                 LogManager.Instance.LogInfo($"开始加载文件 {fileStorage.DisplayName} 的属性");
 
-                if (_databaseManager == null)
-                {
-                    LogManager.Instance.LogWarning("数据库管理器为空");
-                    return;
-                }
-
                 // 获取文件属性（新架构：优先按哈希获取主对象+JSON属性）
-                var result = await _databaseManager.GetFileStorageWithAttributesByHashAsync(fileStorage.FileHash);
+                GraphicApiService.GraphicDetails? result = string.IsNullOrWhiteSpace(fileStorage.FileHash)
+                    ? null
+                    : await _graphicApiService.GetDetailsByHashAsync(fileStorage.FileHash);
 
                 // 若按 hash 未取到 JSON 属性，则按 file_id 兜底（兼容历史/替换后 hash 不一致场景）
-                var attributes = result.Attributes ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var attributes = result?.Attributes ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 if (attributes.Count == 0 && fileStorage.Id > 0)
                 {
-                    var fallbackById = await _databaseManager.GetAttributesJsonByFileIdAsync(fileStorage.Id, fileStorage.FileAttributeId);
-                    if (fallbackById.Count > 0)
+                    GraphicApiService.GraphicDetails? fallbackById = await _graphicApiService
+                        .GetDetailsByIdAsync(fileStorage.Id);
+                    if (fallbackById?.Attributes != null && fallbackById.Attributes.Count > 0)
                     {
-                        attributes = fallbackById;
+                        attributes = fallbackById.Attributes;
                         LogManager.Instance.LogInfo($"CategoryPropertiesDataGrid 按Hash未命中属性，已按FileId兜底加载属性: FileId={fileStorage.Id}, Count={attributes.Count}");
                     }
                 }
@@ -7134,12 +7282,6 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                if (_databaseManager == null)
-                {
-                    MessageBox.Show("数据库管理器未初始化", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return false;
-                }
-
                 if (_selectedFileStorage == null || _selectedFileStorage.Id <= 0)
                 {
                     MessageBox.Show("请先在图元列表中选择一个图元", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -7153,9 +7295,12 @@ namespace GB_CadAndSWPlus_V
                     return false;
                 }
 
-                var storage = await _databaseManager.GetFileByIdAsync(_selectedFileStorage.Id).ConfigureAwait(true) ?? _selectedFileStorage;
-                var existingAttributes = await _databaseManager.GetAttributesJsonByFileIdAsync(storage.Id, storage.FileAttributeId).ConfigureAwait(true);
-                var attributes = new Dictionary<string, string>(existingAttributes, StringComparer.OrdinalIgnoreCase);
+                GraphicApiService.GraphicDetails? details = await _graphicApiService
+                    .GetDetailsByIdAsync(_selectedFileStorage.Id).ConfigureAwait(true);
+                var storage = details?.File ?? _selectedFileStorage;
+                var attributes = new Dictionary<string, string>(
+                    details?.Attributes ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                    StringComparer.OrdinalIgnoreCase);
 
                 void ApplyOne(string propertyDisplayName, string propertyValue)
                 {
@@ -7183,14 +7328,8 @@ namespace GB_CadAndSWPlus_V
                 storage.UpdatedBy = string.IsNullOrWhiteSpace(storage.UpdatedBy) ? Environment.UserName : storage.UpdatedBy;
                 storage.UpdatedAt = DateTime.Now;
 
-                var success = await _databaseManager
-                    .UpdateFileStorageAndAttributesJsonAsync(storage, attributes, storage.FileAttributeId)
-                    .ConfigureAwait(true);
-
-                if (!success)
-                {
-                    return false;
-                }
+                await _graphicApiService.UpdateDetailsAsync(
+                    storage, attributes, storage.FileAttributeId).ConfigureAwait(true);
 
                 _selectedFileStorage = storage;
                 await LoadAndDisplayFileAttributesAsync(storage).ConfigureAwait(true);
@@ -7368,6 +7507,8 @@ namespace GB_CadAndSWPlus_V
                 if (_selectedCategoryNode == null)
                     return;
 
+                long loadVersion = ++_categoryFileLoadVersion;
+                CategoryTreeNode selectedNode = _selectedCategoryNode;
                 var nodeData = _selectedCategoryNode.Data;
                 List<FileStorage> files = null;
 
@@ -7380,9 +7521,12 @@ namespace GB_CadAndSWPlus_V
                     files = await _graphicApiService.GetFilesByCategoryIdAsync(sub.Id, "sub");
                 }
 
-                if (files != null)
+                if (files != null
+                    && loadVersion == _categoryFileLoadVersion
+                    && ReferenceEquals(_selectedCategoryNode, selectedNode))
                 {
                     StroageFileDataGrid.ItemsSource = files;
+                    StroageFileDataGrid.SelectedItem = null;
                     StroageFileDataGrid.Items.Refresh();
                 }
             }
@@ -7450,12 +7594,12 @@ namespace GB_CadAndSWPlus_V
                     return;
                 }
 
-                // ──── 4. 原有保存设置及重新初始化数据库 ────
+                // ──── 4. 保存设置并刷新服务器 API 数据 ────
                 SaveSettings(); // 保存其他设置（如果有）
-                ReinitializeDatabase(); // 重新初始化数据库连接，确保新路径生效
+                RefreshApiData(); // 刷新分类、图元面板和图层字典数据
                 UpdateAdminTabsVisibility(); // 更新管理员选项卡的可见性（如果权限相关）
 
-                MessageBox.Show("设置已应用，数据库连接已更新。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("设置已应用，服务器数据已刷新。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -7923,12 +8067,8 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                // 检查数据库连接
-                if (this._databaseManager == null || !this._databaseManager.IsDatabaseAvailable)
-                {
-                    int num1 = (int)MessageBox.Show("数据库未连接，无法执行导入操作。", "错误", MessageBoxButton.OK, MessageBoxImage.Hand);
-                }
-                else if (this._selectedCategoryNode == null)
+                // 图元入库通过 API 完成，不再把客户端 DM 直连作为前置条件。
+                if (this._selectedCategoryNode == null)
                 {
                     int num2 = (int)MessageBox.Show("请先在左侧的分类树中选择一个要导入的目标分类。", "提示", MessageBoxButton.OK, MessageBoxImage.Exclamation);
                 }
@@ -9962,15 +10102,13 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                    return;
-
-                var cats = await _databaseManager.GetAllCadCategoriesAsync();
+                var categoryApi = new CategoryApiService();
+                var categoryTree = await categoryApi.GetCategoryTreeAsync().ConfigureAwait(true);
+                var cats = categoryTree?.Categories ?? new List<CategoryApiDto>();
                 // 保持 UI 线程安全更新集合
                 await Dispatcher.InvokeAsync(() =>
                 {
                     _categoryNames.Clear();
-                    if (cats == null) return;
                     foreach (var c in cats.OrderBy(x => x.Name ?? x.DisplayName))
                     {
                         // 优先使用 Name 列（题述即为分类），若为空使用 DisplayName 作为回退
@@ -9995,33 +10133,21 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                if (_databaseManager == null) // 未连接数据库时提示
-                {
-                    MessageBox.Show("未连接数据库，无法加载图层字典。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
                 string currentUser = VariableDictionary._userName ?? ""; // 当前登录用户名
+                var layerDictionaryApi = new LayerDictionaryApiService(); // 优先通过服务器 API 访问图层字典
                                                                          // 如果是管理员用户，直接加载该管理员的个人数据（sa/root/admin）
                 if (IsAdminUser(currentUser))
                 {
-                    var list = await _databaseManager.GetLayerDictionaryByUsernameAsync(currentUser).ConfigureAwait(false); // 获取数据
-                    Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(list)); // 在 UI 线程填充
+                    var list = await layerDictionaryApi.GetPersonalAsync(currentUser).ConfigureAwait(false); // 优先获取服务器数据
+                    Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(list ?? new List<LayerDictionaryHelper>())); // 在 UI 线程填充
                     return;
                 }
 
                 // 非管理员：尝试按用户所属部门/专业筛选管理员发布的标准字典
-                var user = await _databaseManager.GetUserByUsernameAsync(currentUser).ConfigureAwait(false); // 获取用户信息
                 string deptName = null; // 用于作为 major 过滤
-                if (user != null && user.DepartmentId.HasValue && user.DepartmentId.Value > 0)
-                {
-                    var depts = await _databaseManager.GetAllDepartmentsAsync().ConfigureAwait(false); // 读取所有部门
-                    var dept = depts?.FirstOrDefault(d => d.Id == user.DepartmentId.Value); // 寻找当前用户部门
-                    deptName = dept?.Name ?? dept?.DisplayName; // 使用部门名或显示名作为专业标识
-                }
 
-                var standards = await _databaseManager.GetStandardLayerDictionaryByMajorAsync(deptName).ConfigureAwait(false); // 获取标准字典
-                Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(standards)); // 填充到 Grid
+                var standards = await layerDictionaryApi.GetStandardAsync(deptName).ConfigureAwait(false); // 优先获取服务器标准字典
+                Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(standards ?? new List<LayerDictionaryHelper>())); // 填充到 Grid
             }
             catch (Exception ex)
             {
@@ -10034,14 +10160,9 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                if (_databaseManager == null) // 检查 DB
-                {
-                    MessageBox.Show("未连接数据库，无法加载图层字典。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
                 string currentUser = VariableDictionary._userName ?? ""; // 当前用户名
-                var list = await _databaseManager.GetLayerDictionaryByUsernameAsync(currentUser).ConfigureAwait(false); // 查询个人字典
-                Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(list)); // 更新 UI
+                var list = await new LayerDictionaryApiService().GetPersonalAsync(currentUser).ConfigureAwait(false); // 优先查询服务器个人字典
+                Dispatcher.Invoke(() => PopulateLayerDictionaryRowsFromEntries(list ?? new List<LayerDictionaryHelper>())); // 更新 UI
             }
             catch (Exception ex)
             {
@@ -10098,8 +10219,9 @@ namespace GB_CadAndSWPlus_V
         {
             try
             {
-                // 确保 CategoryNames 已加载，以便新行的专业下拉能立即显示内容
-                if ((_categoryNames == null || _categoryNames.Count == 0) && _databaseManager != null && _databaseManager.IsDatabaseAvailable)
+                // 确保 CategoryNames 已加载，以便新行的专业下拉能立即显示内容。
+                // 分类数据来自 10010 接口，不要求客户端直连数据库。
+                if (_categoryNames == null || _categoryNames.Count == 0)
                 {
                     await LoadCategoryNamesAsync();
                     // 如果 DataGrid 的 ComboColumn 是通过代码设置的，确保重新应用一次（防止先前为空）
@@ -10177,9 +10299,11 @@ namespace GB_CadAndSWPlus_V
 
                 // 若选中行已经存在数据库 id，则删除数据库中对应记录
                 var idsToDelete = selected.Where(x => x.Id > 0).Select(x => x.Id).ToList();
-                if (idsToDelete.Count > 0 && _databaseManager != null)
+                if (idsToDelete.Count > 0)
                 {
-                    await _databaseManager.DeleteLayerDictionaryEntriesAsync(idsToDelete).ConfigureAwait(false);
+                    int deletedRows = await new LayerDictionaryApiService().DeleteAsync(idsToDelete).ConfigureAwait(false);
+                    if (deletedRows < 0)
+                        throw new InvalidOperationException("服务器图层字典删除接口调用失败。");
                 }
             }
             catch (Exception ex)
@@ -10194,12 +10318,6 @@ namespace GB_CadAndSWPlus_V
 
             try
             {
-                if (_databaseManager == null) // 检查 DB
-                {
-                    MessageBox.Show("未连接数据库，无法保存图层字典。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
                 string username = VariableDictionary._userName ?? ""; // 当前用户名
                 var rows = _layerDictionaryRows.ToList(); // 从 ObservableCollection 获取快照
 
@@ -10244,8 +10362,8 @@ namespace GB_CadAndSWPlus_V
                     return;
                 }
 
-                // 调用数据库扩展方法保存（覆盖当前用户所有记录）
-                var ok = await _databaseManager.SaveLayerDictionaryForUserAsync(username, entries).ConfigureAwait(false);
+                // 优先调用服务器 API 覆盖保存，服务器端负责事务和 DM 写入。
+                var ok = await new LayerDictionaryApiService().SavePersonalAsync(username, entries).ConfigureAwait(false);
                 if (ok)
                 {
                     Dispatcher.Invoke(() => MessageBox.Show("保存图层字典成功。", "完成", MessageBoxButton.OK, MessageBoxImage.Information)); // 成功提示
@@ -10598,18 +10716,15 @@ namespace GB_CadAndSWPlus_V
                     // 继续尝试从数据库加载
                 }
 
-                // 如果没有可用的数据库，直接返回基于 UI 的 map
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                    return map;
-
                 // 当前用户名（可能为空）
                 string username = VariableDictionary._userName ?? string.Empty;
+                var layerDictionaryApi = new LayerDictionaryApiService(); // 图层字典优先通过服务器 API 读取
 
                 // 2) 个人字典（覆盖标准字典）
                 try
                 {
                     // 注意：这里不要使用 ConfigureAwait(false)，需要保持异常与上下文的自然传播与记录。
-                    var personal = await _databaseManager.GetLayerDictionaryByUsernameAsync(username);
+                    var personal = await layerDictionaryApi.GetPersonalAsync(username);
                     if (personal != null)
                     {
                         foreach (var entry in personal)
@@ -10639,10 +10754,10 @@ namespace GB_CadAndSWPlus_V
                     string deptName = null;
                     try
                     {
-                        var user = await _databaseManager.GetUserByUsernameAsync(username);
+                        var user = await new AuthUserDepartmentApiService().GetUserByUsernameAsync(username);
                         if (user != null && user.DepartmentId.HasValue && user.DepartmentId.Value > 0)
                         {
-                            var depts = await _databaseManager.GetAllDepartmentsAsync();
+                            var depts = await new DepartmentApiService().GetDepartmentsWithCountsAsync();
                             var dept = depts?.FirstOrDefault(d => d.Id == user.DepartmentId.Value);
                             deptName = dept?.Name ?? dept?.DisplayName;
                         }
@@ -10652,7 +10767,7 @@ namespace GB_CadAndSWPlus_V
                         // 忽略部门解析错误，继续使用 null
                     }
 
-                    var standards = await _databaseManager.GetStandardLayerDictionaryByMajorAsync(deptName);
+                    var standards = await layerDictionaryApi.GetStandardAsync(deptName);
                     if (standards != null)
                     {
                         foreach (var entry in standards)
@@ -14330,19 +14445,11 @@ namespace GB_CadAndSWPlus_V
             await _syncSemaphore.WaitAsync();
             try
             {
-                // 1. 检查数据库可用性
-                if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-                {
-                    LogManager.Instance.LogWarning("同步失败：数据库不可用。");
-                    MessageBox.Show("数据库未连接，无法执行同步。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                // 2. 获取所有需要同步的图元（可根据业务筛选，这里以“所有未删除的图元”为例）
+                // 1. 通过 API 获取所有需要同步的有效图元。
                 List<FileStorage> allFiles;
                 try
                 {
-                    allFiles = await _databaseManager.GetAllActiveFileStoragesAsync(); // 需要自行实现或使用现有类似方法
+                    allFiles = await _graphicApiService.GetAllActiveAsync();
                     if (allFiles == null || allFiles.Count == 0)
                     {
                         LogManager.Instance.LogInfo("同步结束：没有需要同步的图元。");
@@ -14361,7 +14468,7 @@ namespace GB_CadAndSWPlus_V
                 int successCount = 0;
                 int failCount = 0;
 
-                // 3. 逐一下载每个图元的 DWG 和预览图
+                // 2. 逐一下载每个图元的 DWG 和预览图
                 for (int i = 0; i < allFiles.Count; i++)
                 {
                     var file = allFiles[i];
@@ -14418,32 +14525,28 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private async Task CheckClientVersionAndPromptUpdateAsync()
         {
-            if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-            {
-                MessageBox.Show("当前数据库未连接，无法检查客户端版本。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
             try
             {
-                var serverVersion = await _databaseManager.GetServerClientVersionAsync();
+                var serverVersion = await _systemConfigApiService.GetAsync("ClientVersion");
                 if (string.IsNullOrWhiteSpace(serverVersion))
                 {
                     MessageBox.Show("服务器端未配置客户端版本。", "提示", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
 
+                string normalizedServerVersion = serverVersion;
+
                 var localVersion = TextBox客户端版本?.Text?.Trim() ?? string.Empty;
-                if (IsRemoteVersionNewer(serverVersion, localVersion))
+                if (IsRemoteVersionNewer(normalizedServerVersion, localVersion))
                 {
-                    var downloadedPath = await DownloadClientPackageAsync(serverVersion);
+                    var downloadedPath = await DownloadClientPackageAsync(normalizedServerVersion);
                     if (!string.IsNullOrWhiteSpace(downloadedPath))
                     {
                         MessageBox.Show($"已下载新版本客户端包：{downloadedPath}", "发现新版本", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     else
                     {
-                        MessageBox.Show($"检测到新版本：服务器 {serverVersion}，本地 {localVersion}。客户端包尚未配置。", "发现新版本", MessageBoxButton.OK, MessageBoxImage.Information);
+                        MessageBox.Show($"检测到新版本：服务器 {normalizedServerVersion}，本地 {localVersion}。客户端包尚未配置。", "发现新版本", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                 }
                 else
@@ -14490,12 +14593,6 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private async Task UploadClientPackageAsync()
         {
-            if (_databaseManager == null || !_databaseManager.IsDatabaseAvailable)
-            {
-                MessageBox.Show("当前数据库未连接，无法上传客户端包。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
             var version = TextBox插件版本?.Text?.Trim() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(version))
             {
@@ -14526,8 +14623,11 @@ namespace GB_CadAndSWPlus_V
             var targetPath = Path.Combine(targetDir, $"Client_{version}{Path.GetExtension(sourcePath)}");
             await Task.Run(() => File.Copy(sourcePath, targetPath, true));
 
-            await _databaseManager.SetSystemConfigValueAsync("ClientVersion", version);
-            await _databaseManager.SetSystemConfigValueAsync("ClientPackagePath", targetPath);
+            if (await _systemConfigApiService.SetAsync("ClientVersion", version).ConfigureAwait(true) != true ||
+                await _systemConfigApiService.SetAsync("ClientPackagePath", targetPath).ConfigureAwait(true) != true)
+            {
+                throw new InvalidOperationException("服务器配置接口写入客户端版本或安装包路径失败。");
+            }
 
             TextBox客户端版本.Text = version;
             MessageBox.Show($"客户端包已保存：{targetPath}\n版本已写入数据库：{version}", "上传完成", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -14538,7 +14638,7 @@ namespace GB_CadAndSWPlus_V
         /// </summary>
         private async Task<string> DownloadClientPackageAsync(string serverVersion)
         {
-            var packagePath = await _databaseManager!.GetSystemConfigValueAsync("ClientPackagePath");
+            var packagePath = await _systemConfigApiService.GetAsync("ClientPackagePath");
             if (string.IsNullOrWhiteSpace(packagePath))
             {
                 return string.Empty;

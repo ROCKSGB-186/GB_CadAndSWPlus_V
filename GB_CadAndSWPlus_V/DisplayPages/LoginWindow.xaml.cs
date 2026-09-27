@@ -21,8 +21,6 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
-using Dapper;
-using MySql.Data.MySqlClient;
 using static Autodesk.AutoCAD.DatabaseServices.TextEditor;
 using MessageBox = System.Windows.MessageBox;
 using Path = System.IO.Path;
@@ -48,7 +46,7 @@ namespace GB_CadAndSWPlus_V
         private bool _isLoadingConfig;
 
         /// <summary>
-        /// 如果登录成功且可以连接数据库，此属性由 LoginWindow 构造并返回给调用方（可能为 null 表示未能连接 DB）
+        /// 登录成功后可选返回旧版 CAD 兼容数据库实例；API 登录不依赖此属性。
         /// </summary>
         public DatabaseManager CreatedDatabaseManager { get; private set; }
 
@@ -91,8 +89,7 @@ namespace GB_CadAndSWPlus_V
                 if (string.IsNullOrWhiteSpace(Login_ServerIP.Text))
                     Login_ServerIP.Text = VariableDictionary._serverIP;
 
-                if (string.IsNullOrWhiteSpace(Login_ApiPort.Text))
-                    Login_ApiPort.Text = VariableDictionary._apiPort.ToString();
+                Login_ApiPort.Text = ApiEndpoint.ApiPort.ToString();
 
                 // 2. 确定当前数据库类型（UI > VariableDictionary > 默认 "DM"）
                 string selectedDb = ResolveSelectedDatabaseType();
@@ -113,7 +110,7 @@ namespace GB_CadAndSWPlus_V
                 }
 
                 // 5. 检测服务器 API 端口；数据库端口只供后续数据库连接使用。
-                int apiPort = VariableDictionary._apiPort > 0 ? VariableDictionary._apiPort : 10010;
+                int apiPort = ApiEndpoint.ApiPort;
                 TxtStatus.Text = $"正在检测 API 连接... ({ApiEndpoint.GetDisplayAddress()}，数据库类型: {selectedDb})";
                 bool tcpOk = await Task.Run(() =>
                     TestNetworkConnection(VariableDictionary._serverIP,
@@ -212,7 +209,9 @@ namespace GB_CadAndSWPlus_V
                 // 恢复基本连接信息
                 Login_ServerIP.Text = cfg.ServerIP ?? string.Empty; // 登录服务器 IP
                 Login_DataBaseserverPort.Text = cfg.DataBaseserverPort ?? string.Empty; // 登录服务器端口
-                Login_ApiPort.Text = cfg.ApiPort ?? string.Empty; // API 服务端口
+                Login_ApiPort.Text = string.IsNullOrWhiteSpace(cfg.ApiPort)
+                    ? ApiEndpoint.ApiPort.ToString()
+                    : cfg.ApiPort.Trim();
                 Login_Username.Text = cfg.Username ?? string.Empty; // 登录用户名
                 _savedUsername = Login_Username.Text.Trim();
 
@@ -280,6 +279,7 @@ namespace GB_CadAndSWPlus_V
                 {
                     ServerIP = Login_ServerIP.Text.Trim(), // 登录服务器 IP
                     DataBaseserverPort = Login_DataBaseserverPort.Text.Trim(), // 登录服务器端口
+                    ApiPort = Login_ApiPort.Text.Trim(), // API 服务端口
                     Username = Login_Username.Text.Trim(), // 登录用户名
                     SavePassword = savePassword, // 是否保存密码
                     // 数据库类型也一并持久化
@@ -382,10 +382,12 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary._dbUserName = (dbType == "MYSQL") ? "root" : "SYSDBA";
             VariableDictionary._dbPassWord = (dbType == "MYSQL") ? "123456" : "675756SGBsgb";
 
-            // API 端口（固定值）
-            VariableDictionary._apiPort = int.TryParse(Login_ApiPort.Text.Trim(), out int apiPort) && apiPort > 0
-                ? apiPort
-                : 10010;
+            // API 端口与数据库端口完全独立；非法输入由登录流程明确提示。
+            if (int.TryParse(Login_ApiPort.Text.Trim(), out int apiPort)
+                && apiPort >= 1 && apiPort <= 65535)
+                VariableDictionary._apiPort = apiPort;
+            else
+                VariableDictionary._apiPort = ApiEndpoint.DefaultApiPort;
         }
 
         #endregion
@@ -401,7 +403,7 @@ namespace GB_CadAndSWPlus_V
             try
             {
                 VariableDictionary._serverIP = host;
-                VariableDictionary._apiPort = port > 0 ? port : 10010;
+                VariableDictionary._apiPort = port;
                 var departmentApi = new DepartmentApiService();
                 List<DepartmentModel> depts = await departmentApi.GetDepartmentsWithCountsAsync();
 
@@ -447,7 +449,7 @@ namespace GB_CadAndSWPlus_V
 
         /// <summary>
         /// 登录按钮点击事件处理程序
-        /// 在登录成功后：1) 保存登录配置；2) 尝试创建 DatabaseManager 并赋值 CreatedDatabaseManager；3) 关闭窗口返回 DialogResult=true
+        /// 在登录成功后：1) 保存登录配置；2) 可选创建旧版 CAD 兼容 DatabaseManager；3) 关闭窗口返回 DialogResult=true。
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -469,7 +471,13 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary._databaseType = ResolveSelectedDatabaseType(); // 使用 ComboBoxItem.Content 获取数据库类型，避免得到控件类型名
             VariableDictionary._serverIP = Login_ServerIP.Text.Trim(); // 更新全局服务器 IP
             VariableDictionary._dataBaseServerPort = int.TryParse(Login_DataBaseserverPort.Text.Trim(), out int port) ? port : 5236; // 更新全局数据库端口
-            VariableDictionary._apiPort = int.TryParse(Login_ApiPort.Text.Trim(), out int apiPort) && apiPort > 0 ? apiPort : 10010;
+            if (!int.TryParse(Login_ApiPort.Text.Trim(), out int apiPort) || apiPort <= 0 || apiPort > 65535)
+            {
+                TxtStatus.Text = "请输入有效的 API 服务端口（1-65535）。";
+                Login_ApiPort.Focus();
+                return;
+            }
+            VariableDictionary._apiPort = apiPort;
             VariableDictionary._userName = Login_Username.Text.Trim(); // 更新全局用户名
             VariableDictionary._passWord = Login_Password.Password.Trim(); // 更新全局密码
 
@@ -489,7 +497,7 @@ namespace GB_CadAndSWPlus_V
             BtnLogin.IsEnabled = false; // 禁用登录按钮，防止重复点击
             TxtStatus.Text = "正在连接并验证用户..."; // 更新状态提示
             // 1) 先做快速 TCP 连通性检测；失败则直接退回 FormMain
-            int currentApiPort = VariableDictionary._apiPort > 0 ? VariableDictionary._apiPort : 10010;
+            int currentApiPort = ApiEndpoint.ApiPort;
             bool tcpOk = await Task.Run(() => TestNetworkConnection(VariableDictionary._serverIP, currentApiPort));
             if (!tcpOk)
             {
@@ -524,7 +532,7 @@ namespace GB_CadAndSWPlus_V
 
                 if (authOk)
                 {
-                    // 在用户确认登录前，从 UI 读取数据库类型选择并写入全局变量，确保 DatabaseManager 在构造时使用正确适配器
+                    // 保留数据库类型配置，仅供旧版 CAD 兼容连接使用；API 认证已在 10010 服务完成。
                     try
                     {
                         if (CmbDatabaseType != null && CmbDatabaseType.SelectedItem is ComboBoxItem sel)
@@ -579,26 +587,29 @@ namespace GB_CadAndSWPlus_V
                             }
                         });
 
+                        // 图层字典表由 10010 服务器接口初始化，客户端不再执行数据库 DDL。
+                        bool ensureOk = await new LayerDictionaryApiService().EnsureTableAsync();
+                        if (!ensureOk)
+                        {
+                            LogManager.Instance.LogWarning("服务器图层字典初始化接口不可用，登录继续，但图层字典功能可能暂不可用。");
+                        }
+
                         if (db != null && db.IsDatabaseAvailable)
                         {
-                            var ensureOk = await db.CreateLayerDictionaryTableIfNotExistsAsync();
-                            if (!ensureOk)
-                                LogManager.Instance.LogInfo("确保 layer_dictionary 表失败（但已继续登录）。");
-
                             CreatedDatabaseManager = db;
-                            TxtStatus.Text += " 已连接数据库。";
+                            TxtStatus.Text += " 旧版 CAD 兼容数据库已连接。";
                         }
                         else
                         {
                             CreatedDatabaseManager = null;
-                            TxtStatus.Text += " 但未能连接数据库（请在设置中检查数据库凭据）。";
+                            TxtStatus.Text += " 旧版 CAD 兼容数据库未连接，API 功能不受影响。";
                         }
                     }
                     catch (Exception exDb)
                     {
                         CreatedDatabaseManager = null;
-                        TxtStatus.Text += " 创建 DatabaseManager 时出错：" + exDb.Message;
-                        LogManager.Instance.LogInfo($"创建 DatabaseManager 出错: {exDb.Message}");
+                        TxtStatus.Text += " 创建旧版 CAD 兼容数据库时出错，API 功能不受影响：" + exDb.Message;
+                        LogManager.Instance.LogInfo($"创建旧版 CAD 兼容 DatabaseManager 出错: {exDb.Message}");
                     }
 
                     // 登录成功后关闭窗口（在 UI 线程）
@@ -816,7 +827,7 @@ namespace GB_CadAndSWPlus_V
                         if (string.IsNullOrWhiteSpace(Login_Username.Text))
                             Login_Username.Text = "SYSDBA";
                     }
-                    // 将选择保存到全局变量，供后续构造 DatabaseManager 使用
+                    // 将选择保存到全局变量，供旧版 CAD 兼容连接使用
                     VariableDictionary._databaseType = sel;
                 }
             }
@@ -860,6 +871,10 @@ namespace GB_CadAndSWPlus_V
                 string apiPortText = Login_ApiPort.Text.Trim();
                 string databaseType = ResolveSelectedDatabaseType();
 
+                bool apiPortValid = int.TryParse(apiPortText, out int apiPort)
+                    && apiPort > 0
+                    && apiPort <= 65535;
+
                 LogManager.Instance.LogInfo(
                     $"测试服务器开始：输入配置 ServerIP={host}, DatabasePort={databasePortText}, ApiPort={apiPortText}, DatabaseType={databaseType}");
 
@@ -871,10 +886,9 @@ namespace GB_CadAndSWPlus_V
                     return;
                 }
 
-                if (!int.TryParse(apiPortText, out int apiPort) || apiPort <= 0 || apiPort > 65535)
+                if (!apiPortValid)
                 {
-                    LogManager.Instance.LogWarning($"测试服务器终止：API 端口无效，ApiPort={apiPortText}。");
-                    TxtStatus.Text = "操作失败：请输入有效的 API 服务端口。";
+                    TxtStatus.Text = "操作失败：请输入有效的 API 服务端口（1-65535）。";
                     Login_ApiPort.Focus();
                     return;
                 }

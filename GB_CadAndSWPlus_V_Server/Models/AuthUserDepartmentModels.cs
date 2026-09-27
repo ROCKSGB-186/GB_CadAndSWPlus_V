@@ -55,6 +55,7 @@ public class UserDto
     public string Phone { get; init; } = string.Empty;
     public string Role { get; init; } = string.Empty;
     public string DepartmentName { get; init; } = string.Empty;
+    public int? DepartmentId { get; init; }
     public bool IsActive { get; init; }
 }
 

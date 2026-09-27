@@ -12,7 +12,7 @@ namespace GB_CadAndSWPlus_V.Helpers
 {
     public sealed class AuthUserDepartmentApiService
     {
-        private static readonly HttpClient HttpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        private static readonly HttpClient HttpClient = new HttpClient { Timeout = ApiEndpoint.RequestTimeout };
 
         private sealed class LoginRequest { public string Username { get; set; } = ""; public string Password { get; set; } = ""; }
         // 修改密码请求：服务器使用账号、手机号和邮箱进行身份核验。
@@ -44,6 +44,11 @@ namespace GB_CadAndSWPlus_V.Helpers
         public async Task<List<UserModel>> GetUsersAsync(int departmentId, CancellationToken cancellationToken = default)
         {
             return await SendAsync<List<UserModel>>(HttpMethod.Get, "api/users?departmentId=" + departmentId, null, cancellationToken).ConfigureAwait(false);
+        }
+
+        public async Task<UserModel> GetUserByUsernameAsync(string username, CancellationToken cancellationToken = default)
+        {
+            return await SendAsync<UserModel>(HttpMethod.Get, "api/users/by-username?username=" + Uri.EscapeDataString(username ?? string.Empty), null, cancellationToken).ConfigureAwait(false);
         }
 
         public async Task<MutationResponse> AddUserAsync(string username, string password, int departmentId, string departmentName, string role, bool isActive, string realName, string gender, string phone, string email, CancellationToken cancellationToken = default)

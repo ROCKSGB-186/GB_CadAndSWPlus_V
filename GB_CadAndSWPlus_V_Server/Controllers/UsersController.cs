@@ -17,6 +17,10 @@ public sealed class UsersController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<UserDto>>> GetAsync([FromQuery] int departmentId, CancellationToken cancellationToken)
         => Ok(await _service.GetUsersAsync(departmentId, cancellationToken).ConfigureAwait(false));
 
+    [HttpGet("by-username")]
+    public async Task<ActionResult<UserDto?>> GetByUsernameAsync([FromQuery] string username, CancellationToken cancellationToken)
+        => Ok(await _service.GetUserByUsernameAsync(username, cancellationToken).ConfigureAwait(false));
+
     [HttpPost]
     public async Task<ActionResult<MutationResponse>> AddAsync([FromBody] UserMutationRequest request, CancellationToken cancellationToken)
         => Ok(await _service.AddUserAsync(request, cancellationToken).ConfigureAwait(false));

@@ -14,7 +14,7 @@ namespace GB_CadAndSWPlus_V.Helpers
     {
         private static readonly HttpClient HttpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = ApiEndpoint.RequestTimeout
         };
 
         public async Task<List<DepartmentModel>> GetDepartmentsWithCountsAsync(CancellationToken cancellationToken = default)

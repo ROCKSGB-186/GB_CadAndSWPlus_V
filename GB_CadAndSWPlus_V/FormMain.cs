@@ -164,15 +164,8 @@ namespace GB_CadAndSWPlus_V
                 tb.SelectionStart = Math.Min(selStart, tb.Text.Length); // 恢复光标位置，确保不越界
             }
 
-            // 同步到变量（尝试解析为 double，解析失败使用默认值 1.0）
-            if (double.TryParse(tb.Text, out double val)) // 尝试解析为 double
-            {
-                VariableDictionary.winformTextBoxScale = val; // 成功解析则赋值
-            }
-            else
-            {
-                VariableDictionary.winformTextBoxScale = 1.0; // 解析失败则使用默认值
-            }
+            // 文本框表示比例分母 N（界面为“1:N”），统一转换为实际 CAD 缩放比例 N/100。
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
         }
 
         /// <summary>
@@ -197,8 +190,25 @@ namespace GB_CadAndSWPlus_V
                 ival = 1; 
             }
 
-            // 以 double 存储
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(ival);
+            // 文本框表示比例分母 N（界面为“1:N”），统一转换为实际 CAD 缩放比例 N/100。
+            VariableDictionary.winformTextBoxScale = ival / 100.0;
+        }
+
+        /// <summary>
+        /// 获取 WinForms 比例输入对应的 CAD 实际缩放比例。
+        /// </summary>
+        private double GetWinformScale()
+        {
+            if (!double.TryParse(textBox_Scale_比例?.Text?.Trim(), NumberStyles.Float,
+                    CultureInfo.CurrentCulture, out double denominator)
+                || double.IsNaN(denominator)
+                || double.IsInfinity(denominator)
+                || denominator <= 0)
+            {
+                return 1.0;
+            }
+
+            return denominator / 100.0;
         }
 
         /// <summary>
@@ -1241,7 +1251,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(共用条件)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 161;//设置为被插入的图层颜色
             VariableDictionary.layerName = "TJ(共用条件)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
         }
 
@@ -1263,7 +1273,7 @@ namespace GB_CadAndSWPlus_V
                 VariableDictionary.btnBlockLayer = btnBlockLayer;//设置为被插入的图层名
                 VariableDictionary.layerColorIndex = layerColorIndex;//设置为被插入的图层颜色
                 VariableDictionary.layerName = btnBlockLayer;
-                VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+                VariableDictionary.winformTextBoxScale = GetWinformScale();
 
                 Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
             }
@@ -1379,7 +1389,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "S_设备位号";
             VariableDictionary.layerColorIndex = 241; // 设置为被插入的图层颜色
             VariableDictionary.entityRotateAngle = 0;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
 
             // 读取当前主编码（例如 X0001），为空时兜底为 X0001
             string currentMainCode = (textBox_设备部位号_1.Text ?? string.Empty).Trim();
@@ -1647,7 +1657,7 @@ namespace GB_CadAndSWPlus_V
         {
             VariableDictionary.layerName = "WALL-PARAPET";
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             // 读取尺寸并验证
             if (!double.TryParse(textBox_传递窗_长.Text, NumberStyles.Any, CultureInfo.InvariantCulture, out var coreLen) || coreLen <= 0)
             {
@@ -1785,7 +1795,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             //VariableDictionary.btnBlockLayer = VariableDictionary.btnFileName;
             VariableDictionary.resourcesFile = Resources.DUCT_风口_F1_600x1200_TCH;
-            VariableDictionary.winformTextBoxScale = Convert.ToInt32(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.winForm_Status = true;
             // 生成临时文件名（放在系统临时目录，带 .dwg 扩展名）
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
@@ -1803,7 +1813,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             //VariableDictionary.btnBlockLayer = VariableDictionary.btnFileName;
             VariableDictionary.resourcesFile = Resources.DUCT_风口_F2_900x600_TCH;
-            VariableDictionary.winformTextBoxScale = Convert.ToInt32(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.winForm_Status = true;
             // 生成临时文件名（放在系统临时目录，带 .dwg 扩展名）
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
@@ -1821,7 +1831,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             //VariableDictionary.btnBlockLayer = VariableDictionary.btnFileName;
             VariableDictionary.resourcesFile = Resources.DUCT_风口_F3_600x600_TCH;
-            VariableDictionary.winformTextBoxScale = Convert.ToInt32(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.winForm_Status = true;
             // 生成临时文件名（放在系统临时目录，带 .dwg 扩展名）
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
@@ -1839,7 +1849,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             //VariableDictionary.btnBlockLayer = VariableDictionary.btnFileName;
             VariableDictionary.resourcesFile = Resources.DUCT_风口_F4_900x1200_TCH;
-            VariableDictionary.winformTextBoxScale = Convert.ToInt32(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.winForm_Status = true;
             // 生成临时文件名（放在系统临时目录，带 .dwg 扩展名）
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
@@ -1872,7 +1882,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.winForm_Status = true;
             if (VariableDictionary.winForm_Status)
                 VariableDictionary.winFormDiaoDingHeight = textBox_TJ_JZ_height.Text;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             var command = UnifiedCommandManager.GetCommand("吊顶");
             command?.Invoke();
         }
@@ -1881,7 +1891,7 @@ namespace GB_CadAndSWPlus_V
         {
 
             VariableDictionary.winForm_Status = true;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             var command = UnifiedCommandManager.GetCommand("不吊顶");
             command?.Invoke();
         }
@@ -1895,7 +1905,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(建筑专业J)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 30;//设置为被插入的图层颜色
             VariableDictionary.layerName = "TJ(建筑专业J)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.textbox_Gap = Convert.ToDouble(textBox_距离墙值.Text);
             Env.Document.SendStringToExecute("ParallelLines ", false, false, false);
 
@@ -1909,7 +1919,7 @@ namespace GB_CadAndSWPlus_V
             //VariableDictionary.btnBlockLayer = "GYTJ-碱液";
             VariableDictionary.btnBlockLayer = "TJ(建筑专业J)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 30;//设置为被插入的图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.layerName = "TJ(建筑专业J)";
             Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
             var command = UnifiedCommandManager.GetCommand("冷藏库降板");
@@ -1924,7 +1934,7 @@ namespace GB_CadAndSWPlus_V
             //VariableDictionary.btnBlockLayer = "GYTJ-碱液";
             VariableDictionary.btnBlockLayer = "TJ(建筑专业J)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 30;//设置为被插入的图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.layerName = "TJ(建筑专业J)";
             Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
             var command = UnifiedCommandManager.GetCommand("冷藏库降板");
@@ -1995,7 +2005,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = GB_CadAndSWPlus_V.Resources.ZKTJ_EQUIP_无线AP;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2009,7 +2019,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_电话插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2023,7 +2033,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_网络插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2037,7 +2047,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_电话网络插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) * 1;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2051,7 +2061,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_安防监控;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2067,7 +2077,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_眼纹识别器;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2083,7 +2093,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_无线AP;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2100,7 +2110,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_吸顶式无线AP;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2116,7 +2126,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_室外彩色云台摄像机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2132,7 +2142,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_外线电话插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2148,7 +2158,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_网络交换机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2164,7 +2174,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_室外彩色摄像机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2180,7 +2190,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_人像识别器;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2196,7 +2206,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_人脸识别一体机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2212,7 +2222,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_内线电话插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2228,7 +2238,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_门磁开关;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2244,7 +2254,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_局域网插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2260,7 +2270,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_门禁控制器;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2276,7 +2286,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_读卡器;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2292,7 +2302,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_带扬声器电话机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2308,7 +2318,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_互联网插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2324,7 +2334,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_广角彩色摄像机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2340,7 +2350,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_防爆型网络摄像机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2355,7 +2365,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-通讯";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_防爆型电话机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2368,7 +2378,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_半球彩色摄像机;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2384,7 +2394,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_电锁按键;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2400,7 +2410,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_电控锁;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2417,7 +2427,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "EQUIP-安防";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 3;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.ZKTJ_EQUIP_监控文字;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2443,7 +2453,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 231;//设置为被插入的图层颜色\
             VariableDictionary.dimString = textBox_荷载数据.Text;
             VariableDictionary.resourcesFile = Resources.STJ_受力点;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("GB_InsertBlock_5 ", false, false, false);
         }
         /// <summary>
@@ -2461,7 +2471,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.buttonText = "STJ_水平荷载";
             VariableDictionary.dimString = textBox_荷载数据.Text;
             VariableDictionary.layerColorIndex = 231;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //VariableDictionary.resourcesFile = Resources.STJ_水平荷载;
             Env.Document.SendStringToExecute("NLinePolyline_N ", false, false, false);
         }
@@ -2480,7 +2490,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.buttonText = "STJ_面着地";
             VariableDictionary.dimString = textBox_荷载数据.Text;
             VariableDictionary.layerColorIndex = 231;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("NLinePolyline ", false, false, false);
         }
 
@@ -2498,7 +2508,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.buttonText = "STJ_框着地";
             VariableDictionary.layerColorIndex = 231;
             VariableDictionary.dimString = textBox_荷载数据.Text;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("NLinePolyline_Not ", false, false, false);
         }
 
@@ -2520,7 +2530,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textBox_S_CirDiameter = Convert.ToDouble(textBox_S_直径.Text);//拿到指定圆的直径
             VariableDictionary.textbox_CirPlus_Text = textBox_cirDiameter_Plus.Text;//拿到指定圆的外扩量
             VariableDictionary.layerColorIndex = 231;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             if (VariableDictionary.textBox_S_CirDiameter == 0)
             {
                 Env.Document.SendStringToExecute("DiameterCIR_Point ", false, false, false);
@@ -2549,7 +2559,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_S_Cirradius = Convert.ToDouble(textBox_S_半径.Text);//拿到指定圆的直径
             VariableDictionary.textbox_CirPlus_Text = textBox_cirRadius_Plus.Text;//拿到指定圆的外扩量
             VariableDictionary.layerColorIndex = 231;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             if (VariableDictionary.textbox_S_Cirradius == 0)
             {
                 Env.Document.SendStringToExecute("RadiusCIR_Point ", false, false, false);
@@ -2575,7 +2585,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.buttonText = "矩形开洞";
             VariableDictionary.layerColorIndex = 231;
             VariableDictionary.textColorIndex = 3;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             if (Convert.ToDouble(VariableDictionary.textbox_Height) > 0 && Convert.ToDouble(VariableDictionary.textbox_Width) > 0)
             {
                 recAndMRec = 0;
@@ -2618,7 +2628,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 231;
             VariableDictionary.btnFileName = "TJ(结构洞口)";
             VariableDictionary.textbox_RecPlus_Text = "0";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("STRUC_DrawRec ", false, false, false);
         }
         public void button_MRectangle_Click(object sender, EventArgs e)
@@ -2630,7 +2640,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 231;
             VariableDictionary.layerName = "TJ(结构洞口)";
             VariableDictionary.buttonText = "TJ(结构专业JG)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("STRUC_DrawRec ", false, false, false);
         }
 
@@ -2649,7 +2659,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.PTJ_洗眼器;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2663,7 +2673,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(给排水专业S)";
             VariableDictionary.layerColorIndex = 7;//设置为被插入的图层颜色
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("DDimLinearP ", false, false, false);
         }
 
@@ -2676,7 +2686,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(给排水专业S)";
             VariableDictionary.resourcesFile = Resources.PTJ_小便器给水;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2691,7 +2701,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(给排水专业S)";
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_1x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2706,7 +2716,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(给排水专业S)";
             VariableDictionary.resourcesFile = Resources.PTJ_大便器给水;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2722,7 +2732,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_洗涤盆;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             //Env.Document.SendStringToExecute("GB_InsertBlock_Ptj ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -2739,7 +2749,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.blockScale = 1.5;
             VariableDictionary.resourcesFile = Resources.PTJ_水池给水;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2756,7 +2766,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_热直排管;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2773,7 +2783,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_冷直排管;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2790,7 +2800,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_地漏;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2807,7 +2817,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_给水点;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2823,7 +2833,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 10;
             VariableDictionary.resourcesFile = Resources.PTJ_洗脸盆;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2840,7 +2850,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_冷不带压直排;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2856,7 +2866,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.blockScale = 1;
             VariableDictionary.resourcesFile = Resources.PTJ_热不带压直排;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2872,7 +2882,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_拖布池;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2888,7 +2898,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 10;
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_1x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2904,7 +2914,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 10;
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_1_2x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2920,7 +2930,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 10;
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_1_5x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2936,7 +2946,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 0;
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_1_8x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2952,7 +2962,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.TCH_Ptj_No = 10;
             VariableDictionary.resourcesFile = Resources.PTJ_大洗涤池_2_0x0_5m;
             VariableDictionary.layerName = "TJ(给排水专业S)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2969,7 +2979,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_220V插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2983,7 +2993,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_三相380V插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_三相380V插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -2996,7 +3006,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_潮湿插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_潮湿插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3009,7 +3019,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_三相潮湿插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_三相潮湿插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3022,7 +3032,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_空调插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_空调插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3035,7 +3045,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_设备用电点位";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_设备用电点位;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3048,7 +3058,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_单相夹层插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相夹层插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3062,7 +3072,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.blockScale = 1;
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_插座箱;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3075,7 +3085,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_应急插座";
             VariableDictionary.layerColorIndex = 4;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_应急插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3088,7 +3098,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_应急16A插座";
             VariableDictionary.layerColorIndex = 4;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_应急16A插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3101,7 +3111,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_UPS插座";
             VariableDictionary.layerColorIndex = 4;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_UPS插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3115,7 +3125,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_UPS16A插座";
             VariableDictionary.layerColorIndex = 4;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_UPS16A插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3128,7 +3138,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_传递窗电源插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_传递窗电源插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3141,7 +3151,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_门禁插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_门禁插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3154,7 +3164,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.btnFileName = "DQTJ_EQUIP_红外感应门插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3168,7 +3178,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.btnFileName = "DQTJ_EQUIP_紫外灯";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
         }
         public void button_DQ_三联插座_Click(object sender, EventArgs e)
@@ -3180,7 +3190,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.blockScale = 1.5;
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_三联插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3193,7 +3203,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_四联插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_四联插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 500;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3206,7 +3216,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_互锁插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_互锁插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3219,7 +3229,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_两点互锁";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_两点互锁;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3233,7 +3243,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.blockScale = 0.8;
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_三点互锁;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3246,7 +3256,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_立式空调插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_立式空调插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3259,7 +3269,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_壁挂空调插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_壁挂空调插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3272,7 +3282,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_手消毒插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_手消毒插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3285,7 +3295,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_三相380V插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_视孔灯;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 200;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3298,7 +3308,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_烘手器插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_烘手器插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3311,7 +3321,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_实验台功能柱插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_实验台功能柱插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3324,7 +3334,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_实验台UPS功能柱插座";
             VariableDictionary.layerColorIndex = 4;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_实验台UPS功能柱电源;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3337,7 +3347,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_电热水器安全型插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_电热水器安全型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3350,7 +3360,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_厨宝安全型插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_厨宝安全型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3363,7 +3373,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_烘手器";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_烘手器;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 200;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3376,7 +3386,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_驱鼠器插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_驱鼠器插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3389,7 +3399,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_灭蝇灯插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_灭蝇灯插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3402,7 +3412,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_灭蝇灯插座_底边";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_灭蝇灯插座_底边;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3415,7 +3425,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_实验台UPS功能柱电源";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_实验台UPS功能柱电源;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3428,7 +3438,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnFileName = "DQTJ_EQUIP_实验台上方220V插座";
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_实验台上方220V插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3445,7 +3455,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_380V用电设备点或配电柜;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3463,7 +3473,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D2)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 110;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_380V用电设备大于10KW;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.winForm_Status = true;
             //Env.Document.SendStringToExecute("GB_InsertBlock ", false, false, false);
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
@@ -3483,7 +3493,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_220V用电设备点或配电柜;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.blockScale = VariableDictionary.winformTextBoxScale;
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
@@ -3497,7 +3507,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3509,7 +3519,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相地面插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3521,7 +3531,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相三孔插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3533,7 +3543,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相空调插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3545,7 +3555,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相16A三孔插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3557,7 +3567,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相20A三孔插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3569,7 +3579,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相25A三孔插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3581,7 +3591,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相32A三孔插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3593,7 +3603,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相五孔岛型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 500;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3605,7 +3615,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相三孔岛型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 500;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3617,7 +3627,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_三相岛型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 500;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3629,7 +3639,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的单相防爆插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3641,7 +3651,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的三相防爆插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3653,7 +3663,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_单相防爆岛型插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 500;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3665,7 +3675,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的单相暗敷插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3677,7 +3687,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的单相密闭插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3689,7 +3699,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的三相密闭插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text) / 100;
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3701,7 +3711,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerName = "TJ(电气专业D)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.resourcesFile = Resources.DQTJ_EQUIP_带保护极的三相暗敷插座;
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"{VariableDictionary.btnFileName}_{Guid.NewGuid():N}.dwg");
             System.IO.File.WriteAllBytes(tempPath, VariableDictionary.resourcesFile);
             GB_CadAndSWPlus_V.Helpers.InsertGraphicHelper.ExecuteCopyDwgAllFastWithRepeat(tempPath);
@@ -3897,7 +3907,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxA_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.layerName = "TJ(建筑过结构洞口)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3910,7 +3920,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxZ_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxA_左右开洞.Text);
             VariableDictionary.layerName = "TJ(建筑过结构洞口)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3924,7 +3934,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxS_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.layerName = "TJ(结构洞口)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3937,7 +3947,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxZ_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxS_上下开洞.Text);
             VariableDictionary.layerName = "TJ(结构开洞)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3950,7 +3960,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxP_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.layerName = "TJ(给排水过建筑)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3963,7 +3973,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 7;//设置图层颜色
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxP_上下开洞.Text);
             VariableDictionary.layerName = "TJ(给排水过建筑)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -3977,7 +3987,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxN_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.layerName = "TJ(暖通过建筑-洞口)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
         }
 
@@ -3990,7 +4000,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxN_左右开洞.Text);
             VariableDictionary.layerName = "TJ(暖通过建筑-洞口)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
         }
 
@@ -4003,7 +4013,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxN_横墙百页窗.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_纵墙百页窗.Text);
             VariableDictionary.layerName = "TJ(暖通过建筑-百叶窗)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
         }
 
@@ -4016,7 +4026,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_纵墙百页窗.Text);
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxN_横墙百页窗.Text);
             VariableDictionary.layerName = "TJ(暖通过建筑-百叶窗)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
         }
 
@@ -4030,7 +4040,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置为被插入的图层颜色
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxP_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -4043,7 +4053,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.layerColorIndex = 142;//设置图层颜色
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxZ_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxE_左右开洞.Text);
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -4056,7 +4066,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxN_上下开洞.Text);
             VariableDictionary.layerColorIndex = 3;//设置图层颜色
             VariableDictionary.layerName = "TJ(自控过建筑)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -4069,7 +4079,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.textbox_Width = Convert.ToDouble(textBoxZ_左右开洞.Text);
             VariableDictionary.textbox_Height = Convert.ToDouble(textBoxZ_左右开洞.Text);
             VariableDictionary.layerName = "TJ(自控过建筑)";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             Env.Document.SendStringToExecute("HVAC_PolyLineREC ", false, false, false);
             //Env.Editor.Redraw();
         }
@@ -4216,7 +4226,7 @@ namespace GB_CadAndSWPlus_V
                 // 如果不是数字，阻止输入并显示提示消息
                 e.Handled = true;
                 System.Windows.Forms.MessageBox.Show("只能输入数字，请重新输入！", "输入错误", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                //VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+                //VariableDictionary.winformTextBoxScale = GetWinformScale();
             }
         }
         /// <summary>
@@ -4319,7 +4329,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "TJ(建筑专业J)";//设置为被插入的图层名
             VariableDictionary.layerColorIndex = 30;//设置为被插入的图层颜色
             VariableDictionary.btnFileName = "特殊地面做法要求";
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);
+            VariableDictionary.winformTextBoxScale = GetWinformScale();
             VariableDictionary.layerName = "TJ(建筑专业J)";
             Env.Document.SendStringToExecute("DBTextLabel ", false, false, false);
         }
@@ -7181,7 +7191,7 @@ namespace GB_CadAndSWPlus_V
             VariableDictionary.btnBlockLayer = "暖通房间面积";//设置为被插入的图层名
             VariableDictionary.buttonText = "暖通房间面积";
             VariableDictionary.layerColorIndex = 2;//设置图层颜色
-            VariableDictionary.winformTextBoxScale = Convert.ToDouble(textBox_Scale_比例.Text);//设置文本的比例
+            VariableDictionary.winformTextBoxScale = GetWinformScale();//设置文本的比例
 
             Env.Document.SendStringToExecute("AreaByPoints ", false, false, false);
         }

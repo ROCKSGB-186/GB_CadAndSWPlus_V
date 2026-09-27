@@ -2,6 +2,7 @@ using Dapper;
 using Dm;
 using GB_CadAndSWPlus_V.UploadApi.Models;
 using MySql.Data.MySqlClient;
+using System.Diagnostics;
 
 namespace GB_CadAndSWPlus_V.UploadApi.Services;
 
@@ -27,15 +28,21 @@ public sealed class CategoryQueryService
     {
         string databaseType = GetDatabaseType();
         string schema = GetSchemaName();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("分类树查询开始。DatabaseType={DatabaseType}, Schema={Schema}", databaseType, schema);
 
         try
         {
             if (databaseType == "DM")
             {
-                return await QueryDmAsync(schema, cancellationToken).ConfigureAwait(false);
+                CategoryTreeResponse response = await QueryDmAsync(schema, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("分类树查询成功。DatabaseType={DatabaseType}, Categories={Categories}, Subcategories={Subcategories}, ElapsedMs={ElapsedMs}", databaseType, response.Categories.Count, response.Subcategories.Count, stopwatch.ElapsedMilliseconds);
+                return response;
             }
 
-            return await QueryMySqlAsync(cancellationToken).ConfigureAwait(false);
+            CategoryTreeResponse mysqlResponse = await QueryMySqlAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("分类树查询成功。DatabaseType={DatabaseType}, Categories={Categories}, Subcategories={Subcategories}, ElapsedMs={ElapsedMs}", databaseType, mysqlResponse.Categories.Count, mysqlResponse.Subcategories.Count, stopwatch.ElapsedMilliseconds);
+            return mysqlResponse;
         }
         catch (Exception ex)
         {

@@ -21,7 +21,7 @@ namespace GB_CadAndSWPlus_V.Helpers
         private static readonly HttpClient HttpClient = new HttpClient
         {
             // 分类数据量通常不大，30 秒足够完成一次查询。
-            Timeout = TimeSpan.FromSeconds(30)
+            Timeout = ApiEndpoint.RequestTimeout
         };
 
         /// <summary>
@@ -93,6 +93,18 @@ namespace GB_CadAndSWPlus_V.Helpers
                 // 继续抛出异常，让界面层显示明确的失败提示。
                 throw;
             }
+        }
+
+        /// <summary>
+        /// 从服务器分类树中查找指定子分类，避免客户端直连数据库。
+        /// </summary>
+        public async Task<SubcategoryApiDto> GetSubcategoryByIdAsync(int subcategoryId, CancellationToken cancellationToken = default)
+        {
+            if (subcategoryId < 10000)
+                throw new ArgumentOutOfRangeException(nameof(subcategoryId));
+
+            CategoryTreeApiResponse tree = await GetCategoryTreeAsync(cancellationToken).ConfigureAwait(false);
+            return tree.Subcategories?.FirstOrDefault(item => item.Id == subcategoryId);
         }
 
         /// <summary>

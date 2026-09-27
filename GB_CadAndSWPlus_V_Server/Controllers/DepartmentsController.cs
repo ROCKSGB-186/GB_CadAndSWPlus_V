@@ -42,6 +42,15 @@ public sealed class DepartmentsController : ControllerBase
                 message = "数据库服务暂时不可用，请稍后重试。"
             });
         }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("数据库连接字符串", StringComparison.Ordinal))
+        {
+            _logger.LogError(ex, "部门查询因服务器 DM 数据库连接配置缺失而失败。DatabaseType=DM");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                success = false,
+                message = "服务器未配置可用的 DM 数据库连接，请联系管理员。"
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "部门查询接口执行失败。");

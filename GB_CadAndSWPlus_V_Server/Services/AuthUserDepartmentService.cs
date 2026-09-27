@@ -112,6 +112,22 @@ public sealed class AuthUserDepartmentService
         return await QueryAsync<UserDto>(sql, new { DepartmentId = departmentId }, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<UserDto?> GetUserByUsernameAsync(string username, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return null;
+
+        string table = GetDatabaseType() == "DM" ? $"{GetSchemaName()}.USERS" : "users";
+        string parameter = GetDatabaseType() == "DM" ? ":Username" : "@Username";
+        string sql = $@"SELECT ID AS Id, USERNAME AS Username, COALESCE(REAL_NAME, USERNAME) AS RealName,
+                COALESCE(REAL_NAME, USERNAME) AS DisplayName, COALESCE(REAL_NAME, USERNAME) AS FullName,
+                COALESCE(GENDER, '') AS Gender, COALESCE(EMAIL, '') AS Email, COALESCE(PHONE, '') AS Phone,
+                COALESCE(ROLE, '') AS Role, COALESCE(DEPARTMENT_NAME, '') AS DepartmentName,
+                DEPARTMENT_ID AS DepartmentId, COALESCE(IS_ACTIVE, 1) AS IsActive
+                FROM {table} WHERE UPPER(USERNAME)=UPPER({parameter})";
+        return await QuerySingleAsync<UserDto>(sql, new { Username = username.Trim() }, cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task<MutationResponse> AddUserAsync(UserMutationRequest request, CancellationToken cancellationToken)
     {
         return await RegisterAsync(new RegisterUserRequest

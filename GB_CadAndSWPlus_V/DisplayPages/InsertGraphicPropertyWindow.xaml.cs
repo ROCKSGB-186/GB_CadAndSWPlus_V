@@ -78,8 +78,12 @@ namespace GB_CadAndSWPlus_V.Views
             PropertiesGrid.CommitEdit(System.Windows.Controls.DataGridEditingUnit.Cell, true);
             PropertiesGrid.CommitEdit(System.Windows.Controls.DataGridEditingUnit.Row, true);
 
+            string connectionType = FindConnectionTypeRow()?.Value?.Trim() ?? string.Empty;
+            bool retainFlangeProperties = GetFlangeQuantity(connectionType, _isStandaloneFlangeOrBlindPlate) > 0;
+
             return Properties
                 .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+                .Where(item => retainFlangeProperties || !IsFlangeRelatedPropertyName(item.Name))
                 .GroupBy(item => item.Name.Trim(), StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.Last().Value ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         }
@@ -315,6 +319,14 @@ namespace GB_CadAndSWPlus_V.Views
             // “法兰”表示两侧各有一个法兰；“单侧法兰”和“对夹”均只统计一个法兰。
             int flangeQuantity = GetFlangeQuantity(connectionType, _isStandaloneFlangeOrBlindPlate);
 
+            // 非法兰连接不具备法兰和螺栓，必须清理旧图元或旧规范留下的计算结果。
+            if (flangeQuantity <= 0)
+            {
+                LogManager.Instance.LogInfo(
+                    $"[插入前属性][非目标连接方式] CONN_TYPE={connectionType}，最终返回时不保留法兰/螺栓属性。");
+                return;
+            }
+
             // 螺栓数量按法兰数量计算：法兰为两侧法兰，单侧法兰和对夹为单侧法兰。
             int boltQuantity = boltHoles * flangeQuantity;
 
@@ -328,11 +340,32 @@ namespace GB_CadAndSWPlus_V.Views
         }
 
         /// <summary>
+        /// 判断属性行是否属于仅法兰/螺栓连接才有意义的字段。
+        /// </summary>
+        private static bool IsFlangeRelatedPropertyName(string name)
+        {
+            string normalized = (name ?? string.Empty)
+                .Trim()
+                .Replace("_", string.Empty)
+                .Replace("-", string.Empty)
+                .Replace(".", string.Empty)
+                .ToUpperInvariant();
+
+            return normalized is "FLGSTD" or "FLGTYPE" or "FACETYPE" or "FLGOD" or "FLGID" or "FLGTHK" or "FLGQTY"
+                or "BOLTQTY" or "BOLTLENGTH" or "BOLTHOLES" or "BOLTHOLEDIA" or "BOLTPCD" or "BOLTSPEC"
+                or "RAISEDFACEHGT" or "MATINGFLG" or "GASKETMATL" or "GASKETTHK" or "BOLTMATL" or "NUTMATL" or "FLGMATL"
+                or "法兰标准" or "法兰类型" or "密封面形式" or "法兰外径" or "法兰内径" or "法兰厚度" or "法兰数量"
+                or "螺栓数量" or "螺栓长度" or "螺栓孔数量" or "螺栓孔直径" or "螺栓孔中心圆直径" or "螺栓规格" or "密封面高度"
+                or "配对法兰" or "垫片材质" or "垫片厚度" or "螺栓材质" or "螺母材质" or "法兰材质";
+        }
+
+        /// <summary>
         /// 按连接方式计算法兰数量。
         /// </summary>
         private static int GetFlangeQuantity(string connectionType, bool isStandaloneFlangeOrBlindPlate)
         {
-            if (isStandaloneFlangeOrBlindPlate) return 1;
+            // 独立法兰/管端盲板没有连接方式时兼容按一个法兰处理；用户明确选择其他方式后必须按非目标连接处理。
+            if (isStandaloneFlangeOrBlindPlate && string.IsNullOrWhiteSpace(connectionType)) return 1;
 
             string value = (connectionType ?? string.Empty).Replace(" ", string.Empty).Replace("　", string.Empty);
             if (value.Equals("法兰", StringComparison.OrdinalIgnoreCase) ||
@@ -361,8 +394,12 @@ namespace GB_CadAndSWPlus_V.Views
             string shortCode = GetBoltShortCode(connectionType);
 
             InsertGraphicPropertyRow? lengthRow = FindRow("BOLT_LENGTH", "BOLTLENGTH");
-            InsertGraphicPropertyRow? quantityRow = FindRow("BOLT_QTY", "BOLTQTY");
-            if (string.IsNullOrWhiteSpace(shortCode)) return;
+            if (string.IsNullOrWhiteSpace(shortCode))
+            {
+                // 没有 S/L 螺栓规范编码时，不允许保留上一次连接方式的螺栓长度。
+                if (lengthRow != null) lengthRow.Value = string.Empty;
+                return;
+            }
 
             if (!_boltStandardResponses.TryGetValue(shortCode, out BoltStandardMatchResponse? response) ||
                 response?.Success != true)
@@ -382,6 +419,15 @@ namespace GB_CadAndSWPlus_V.Views
 
             LogManager.Instance.LogInfo(
                 $"插入前窗口螺栓规范切换：CONN_TYPE={connectionType}，SHORT={shortCode}，LENGTH={length}，规范QUANTITY={quantity}，BOLT_HOLES={boltHoles}，BOLT_QTY={boltHoles * GetFlangeQuantity(connectionType, _isStandaloneFlangeOrBlindPlate)}");
+        }
+
+        /// <summary>
+        /// 更新一个计算结果属性；属性不存在时保持原图元属性结构不变。
+        /// </summary>
+        private void SetCalculatedRowValue(string primaryName, string legacyName, string value)
+        {
+            InsertGraphicPropertyRow? row = FindRow(primaryName, legacyName);
+            if (row != null) row.Value = value;
         }
 
         private static string GetBoltShortCode(string connectionType)

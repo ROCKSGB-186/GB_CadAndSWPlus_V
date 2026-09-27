@@ -353,6 +353,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         public string Phone { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string DepartmentName { get; set; } = string.Empty;
+        public int? DepartmentId { get; set; }
         public bool IsActive { get; set; }
     }
     /// <summary>

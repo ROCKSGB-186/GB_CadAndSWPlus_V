@@ -23,11 +23,6 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
     public class FileManager
     {
         /// <summary>
-        /// 数据库管理器
-        /// </summary>
-        private readonly DatabaseManager _databaseManager ;
-
-        /// <summary>
         /// 分类管理器
         /// </summary>
         private CategoryManager _categoryManager;
@@ -35,12 +30,11 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 分类管理器
         /// </summary>
-        /// <param name="databaseManager">数据库管理器</param>
-        /// <param name="baseStoragePath">基础存储路径</param>
-        /// <param name="useDPath">是否使用D盘</param>
-        public FileManager(DatabaseManager databaseManager)
+        /// <summary>
+        /// 创建文件管理服务。文件路径解析、上传和下载均通过 API 完成。
+        /// </summary>
+        public FileManager()
         {
-            _databaseManager = databaseManager;// 数据库管理器
         }
         
         /// <summary>
@@ -275,12 +269,11 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 解析当前上传操作应使用的存储根路径
         /// </summary>
-        /// <param name="databaseManager">数据库管理器</param>
         /// <param name="operationName">操作名称（用于日志定位）</param>
         /// <returns>最终可用的存储根路径</returns>
-        private async Task<string> ResolveStorageRootPathAsync(DatabaseManager databaseManager, string operationName)
+        private async Task<string> ResolveStorageRootPathAsync(string operationName)
         {
-            // 本地兜底路径（仅数据库不可用时才允许）
+            // 本地兜底路径（服务器配置不可用时使用）
             string fallbackPath = GetPath.AppDataPath;
 
             // 读取当前登录服务器 IP（用于将 D:\\... 转换为 \\IP\\D$\\...）
@@ -288,15 +281,10 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
 
             LogManager.Instance.LogInfo($"[{operationName}] 开始解析存储根路径。serverIp={serverIp}, fallbackPath={fallbackPath}");
 
-            // 数据库不可用时，保留旧行为：允许回退本地路径
-            if (databaseManager == null || !databaseManager.IsDatabaseAvailable)
-            {
-                LogManager.Instance.LogWarning($"[{operationName}] 数据库不可用，使用本地回退路径: {fallbackPath}");
-                return EnsureDirectoryPath(fallbackPath, operationName);
-            }
-
-            // 1) 优先读取系统配置 SourceRoot
-            string sourceRootRaw = await databaseManager.GetSystemConfigValueAsync("SourceRoot").ConfigureAwait(false);
+            // 1) 通过 API 读取系统配置 SourceRoot。
+            string sourceRootRaw = await new SystemConfigApiService()
+                .GetAsync("SourceRoot")
+                .ConfigureAwait(false) ?? string.Empty;
             LogManager.Instance.LogInfo($"[{operationName}] 读取 SourceRoot 原始值: {sourceRootRaw}");
             // 转成服务器路径
             string sourceRoot = EnsureDirectoryPath(ResolveServerStoragePath(sourceRootRaw, serverIp, operationName), operationName);
@@ -306,7 +294,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 return sourceRoot;
             }
 
-            // 2) 兼容旧链路：读取运行时变量中的存储路径（即 TextBoxSetStoragePath）
+            // 2) 兼容旧链路：读取运行时变量中的存储路径（即 TextBoxSetStoragePath）。
+            // API 迁移后不能因为客户端 DM 不可用而跳过服务器路径回退。
             LogManager.Instance.LogInfo($"[{operationName}] SourceRoot 为空，读取运行时存储路径 VariableDictionary._cacheStoragePath: {GetPath._cacheStoragePath}");
             string runtimeStoragePath = EnsureDirectoryPath(ResolveServerStoragePath(GetPath._cacheStoragePath, serverIp, operationName), operationName);
             if (!string.IsNullOrWhiteSpace(runtimeStoragePath))
@@ -550,14 +539,14 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 解析图元主文件在服务器侧的权威路径。
         /// </summary>
-        public async Task<string> ResolveServerGraphicPathAsync(DatabaseManager databaseManager, FileStorage storage, string operationName)
+        public async Task<string> ResolveServerGraphicPathAsync(FileStorage storage, string operationName)
         {
             if (storage == null)
             {
                 throw new ArgumentNullException(nameof(storage));
             }
             // 获取图元存储根路径
-            string root = await ResolveStorageRootPathAsync(databaseManager, operationName).ConfigureAwait(false);
+            string root = await ResolveStorageRootPathAsync(operationName).ConfigureAwait(false);
             string rootFull = Path.GetFullPath(root);
 
             string sourcePath = storage.FilePath ?? string.Empty;
@@ -615,7 +604,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 通过 HTTP API 替换服务器上的主 DWG 文件
         /// </summary>
-        public async Task<FileStorage> ReplaceGraphicFileAsync(DatabaseManager databaseManager, FileStorage storage, string localPath)
+        public async Task<FileStorage> ReplaceGraphicFileAsync(FileStorage storage, string localPath)
         {
             if (storage == null) throw new ArgumentNullException(nameof(storage));
             if (!File.Exists(localPath)) throw new FileNotFoundException("本地替换文件不存在", localPath);
@@ -635,6 +624,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             // 3. 发送 PUT 请求
             var response = await httpClient.PutAsync(url, form);
             var body = await response.Content.ReadAsStringAsync();
+
+            LogManager.Instance.LogInfo($"[ReplaceGraphicFile] PUT {url}，HTTP={(int)response.StatusCode}，响应长度={body.Length}");
 
             if (!response.IsSuccessStatusCode)
             {
@@ -656,17 +647,32 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 删除服务器侧图元主文件和预览图（可选包含备份文件）。
         /// </summary>
-        public async Task<bool> DeletePhysicalFilesAsync(DatabaseManager databaseManager, FileStorage storage, bool deleteBackupFiles)
+        public async Task<bool> DeletePhysicalFilesAsync(FileStorage storage, bool deleteBackupFiles)
         {
             if (storage == null)
             {
                 throw new ArgumentNullException(nameof(storage));
             }
 
-            string root = await ResolveStorageRootPathAsync(databaseManager, "DeletePhysicalFilesAsync").ConfigureAwait(false);
+            // 删除由服务器事务 API 统一负责数据库记录和物理文件清理。
+            if (storage.Id > 0)
+            {
+                try
+                {
+                    await new GraphicApiService().DeleteAsync(storage.Id).ConfigureAwait(false);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Instance.LogWarning($"[DeletePhysicalFilesAsync] 服务器删除接口失败: {ex.Message}");
+                    return false;
+                }
+            }
+
+            string root = await ResolveStorageRootPathAsync("DeletePhysicalFilesAsync").ConfigureAwait(false);
             string rootFull = Path.GetFullPath(root);
 
-            string graphicPath = await ResolveServerGraphicPathAsync(databaseManager, storage, "DeletePhysicalFilesAsync").ConfigureAwait(false);
+            string graphicPath = await ResolveServerGraphicPathAsync(storage, "DeletePhysicalFilesAsync").ConfigureAwait(false);
 
             var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (!string.IsNullOrWhiteSpace(graphicPath))

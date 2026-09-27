@@ -39,6 +39,7 @@ public class GraphicUploadDmService
         }
 
         string normalizedAttributesJson = NormalizeAttributesJson(request.AttributesJson);
+        string schema = GetSchemaName();
 
         await using var connection = new DmConnection(connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -49,8 +50,8 @@ public class GraphicUploadDmService
         {
             DateTime now = DateTime.Now;
 
-            const string insertStorageSql = @"
-            INSERT INTO CAD_SW_LIBRARY.CAD_FILE_STORAGE
+            string insertStorageSql = $@"
+            INSERT INTO {schema}.CAD_FILE_STORAGE
             (
                 category_id,
                 category_type,
@@ -139,14 +140,14 @@ public class GraphicUploadDmService
             string storageIdColumn = await ResolveIdColumnNameAsync(
                 connection,
                 transaction,
-                "CAD_SW_LIBRARY",
+                schema,
                 "CAD_FILE_STORAGE",
                 new[] { "ID", "FILE_ID", "STORAGE_ID" },
                 cancellationToken).ConfigureAwait(false);
 
             string selectStorageIdSql = $@"
              SELECT {storageIdColumn}
-             FROM CAD_SW_LIBRARY.CAD_FILE_STORAGE
+             FROM {schema}.CAD_FILE_STORAGE
              WHERE file_stored_name = :FileStoredName
              ORDER BY created_at DESC
              FETCH FIRST 1 ROWS ONLY";
@@ -163,8 +164,8 @@ public class GraphicUploadDmService
                 throw new InvalidOperationException($"写入 cad_file_storage 后未获取到有效 storageId。fileStoredName={request.FileStoredName}");
             }
 
-            const string insertAttrSql = @"
-             INSERT INTO CAD_SW_LIBRARY.CAD_BLOCK_ATTRIBUTES_JSON
+            string insertAttrSql = $@"
+             INSERT INTO {schema}.CAD_BLOCK_ATTRIBUTES_JSON
              (
                  file_id,
                  config_name,
@@ -195,14 +196,14 @@ public class GraphicUploadDmService
             string attrIdColumn = await ResolveIdColumnNameAsync(
                 connection,
                 transaction,
-                "CAD_SW_LIBRARY",
+                schema,
                 "CAD_BLOCK_ATTRIBUTES_JSON",
                 new[] { "ID", "ATTR_ID", "ATTRIBUTE_ID" },
                 cancellationToken).ConfigureAwait(false);
 
             string selectAttrIdSql = $@"
                 SELECT {attrIdColumn}
-                FROM CAD_SW_LIBRARY.CAD_BLOCK_ATTRIBUTES_JSON
+                FROM {schema}.CAD_BLOCK_ATTRIBUTES_JSON
                 WHERE file_id = :FileId
                   AND config_name = :ConfigName
                 ORDER BY created_at DESC
@@ -224,7 +225,7 @@ public class GraphicUploadDmService
                 throw new InvalidOperationException($"写入 cad_block_attributes_json 后未获取到有效 attrId。fileId={storageId}");
             }
 
-            string updateStorageSql = $"UPDATE CAD_SW_LIBRARY.CAD_FILE_STORAGE SET file_attribute_id = :AttrId, updated_at = :UpdatedAt WHERE {storageIdColumn} = :StorageId";
+            string updateStorageSql = $"UPDATE {schema}.CAD_FILE_STORAGE SET file_attribute_id = :AttrId, updated_at = :UpdatedAt WHERE {storageIdColumn} = :StorageId";
 
             await connection.ExecuteAsync(
                 new CommandDefinition(
@@ -248,6 +249,14 @@ public class GraphicUploadDmService
             _logger.LogError(ex, "达梦写入上传记录失败。fileStoredName={FileStoredName}, fileHash={FileHash}", request.FileStoredName, request.FileHash);
             throw;
         }
+    }
+
+    private string GetSchemaName()
+    {
+        string schema = (_configuration["Database:Schema"] ?? "CAD_SW_LIBRARY").Trim();
+        if (string.IsNullOrWhiteSpace(schema) || schema.Any(character => !char.IsLetterOrDigit(character) && character != '_'))
+            throw new InvalidOperationException("服务器数据库 Schema 配置无效。");
+        return schema.ToUpperInvariant();
     }
 
     /// <summary>

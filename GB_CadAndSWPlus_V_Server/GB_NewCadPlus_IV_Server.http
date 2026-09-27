@@ -1,6 +1,18 @@
 @GB_CadAndSWPlus_V_Server_HostAddress = http://localhost:10010
 
-GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/weatherforecast/
+GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/api/health
 Accept: application/json
 
 ###
+
+GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/api/system-config/Version
+Accept: application/json
+
+###
+
+PUT {{GB_CadAndSWPlus_V_Server_HostAddress}}/api/system-config/ClientVersion
+Content-Type: application/json
+
+{
+  "value": "3.26.0907.159"
+}

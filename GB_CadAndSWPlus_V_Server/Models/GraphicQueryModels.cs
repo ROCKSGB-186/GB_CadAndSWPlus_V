@@ -39,3 +39,13 @@ public sealed class GraphicDto
     public DateTime? CreatedAt { get; init; }
     public DateTime? UpdatedAt { get; init; }
 }
+
+public sealed class GraphicDetailsResponse
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public GraphicDto File { get; init; } = new();
+    public IReadOnlyDictionary<string, string> Attributes { get; init; }
+        = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    public string ConfigName { get; init; } = string.Empty;
+}

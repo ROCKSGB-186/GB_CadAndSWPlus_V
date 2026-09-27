@@ -1,6 +1,8 @@
 using Dapper;               // 引入 Dapper ORM 框架
 using Dm;                   // 引入达梦数据库驱动
 using GB_CadAndSWPlus_V.UploadApi.Filters;
+using GB_CadAndSWPlus_V.UploadApi.Models;
+using GB_CadAndSWPlus_V.UploadApi.Services;
 using Microsoft.AspNetCore.Mvc; // 引入 ASP.NET Core MVC 核心功能
 using MySql.Data.MySqlClient;   // 引入 MySQL 数据库驱动
 using System.Data;          // 引入数据操作相关命名空间
@@ -20,15 +22,69 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
     {
         private readonly IConfiguration _configuration; // 注入配置管理器，用于读取 appsettings.json 中的配置项
         private readonly ILogger<GraphicsController> _logger; // 注入日志记录器，用于记录调试信息和错误日志
-        private static readonly HashSet<string> AllowedCategoryTypes = new(StringComparer.OrdinalIgnoreCase) { "sub", "root" }; // 允许的分类类型集合，忽略大小写
+        private readonly GraphicCommandService _graphicCommandService;
+        private static readonly HashSet<string> AllowedCategoryTypes = new(StringComparer.OrdinalIgnoreCase) { "main", "sub", "root" }; // 允许的分类类型集合，忽略大小写
 
         /// <summary>
         /// 构造函数，注入配置和日志服务
         /// </summary>
-        public GraphicsController(IConfiguration configuration, ILogger<GraphicsController> logger)
+        public GraphicsController(
+            IConfiguration configuration,
+            GraphicCommandService graphicCommandService,
+            ILogger<GraphicsController> logger)
         {
             _configuration = configuration; // 初始化配置管理器
             _logger = logger;               // 初始化日志记录器
+            _graphicCommandService = graphicCommandService ?? throw new ArgumentNullException(nameof(graphicCommandService));
+        }
+
+        [HttpPut("{storageId:int}/details")]
+        public async Task<IActionResult> UpdateDetailsAsync(
+            [FromRoute] int storageId,
+            [FromBody] GraphicMutationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                bool updated = await _graphicCommandService
+                    .UpdateDetailsAsync(storageId, request, cancellationToken).ConfigureAwait(false);
+                return updated
+                    ? Ok(new { success = true, message = "图元属性更新成功" })
+                    : NotFound(new { success = false, message = "图元记录不存在。" });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "更新图元详情失败。StorageId={StorageId}", storageId);
+                return StatusCode(500, new { success = false, message = "图元属性更新失败，请查看服务器日志。" });
+            }
+        }
+
+        [HttpDelete("{storageId:int}")]
+        public async Task<IActionResult> DeleteAsync(
+            [FromRoute] int storageId,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                GraphicDeleteResult? result = await _graphicCommandService
+                    .DeleteAsync(storageId, cancellationToken).ConfigureAwait(false);
+                return result == null
+                    ? NotFound(new { success = false, message = "图元记录不存在。" })
+                    : Ok(result);
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return BadRequest(new { success = false, message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "删除图元失败。StorageId={StorageId}", storageId);
+                return StatusCode(500, new { success = false, message = "图元删除失败，请查看服务器日志。" });
+            }
         }
 
         #region 上传接口
@@ -78,13 +134,12 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
             string? colorIndexStr = Request.Form["colorIndex"];
             string? scaleStr = Request.Form["scale"];
 
-            // 诊断日志
-            _logger.LogInformation("=== [DIAGNOSTIC] Start Dumping Form Data ===");
-            foreach (var key in Request.Form.Keys)
-            {
-                _logger.LogInformation($"[DIAGNOSTIC] Key: '{key}', Value: '{Request.Form[key]}'");
-            }
-            _logger.LogInformation("=== [DIAGNOSTIC] End Dumping Form Data ===");
+            // 诊断日志只记录字段名和文件大小，避免把属性 JSON、描述等内容写入日志。
+            _logger.LogInformation(
+                "上传表单字段：Keys={Keys}, DwgLength={DwgLength}, PreviewLength={PreviewLength}",
+                string.Join(",", Request.Form.Keys),
+                dwgFile?.Length ?? 0,
+                previewFile?.Length ?? 0);
 
             // ============================
             // 3. 解析并验证关键字段
@@ -118,6 +173,14 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
             // 其他字段默认值填充
             if (string.IsNullOrWhiteSpace(categoryType))
                 categoryType = "sub";
+            else
+                categoryType = categoryType.Trim().ToLowerInvariant();
+
+            if (!AllowedCategoryTypes.Contains(categoryType))
+            {
+                _logger.LogWarning("上传失败：categoryType 不在允许范围内。CategoryType={CategoryType}", categoryType);
+                return BadRequest(new { success = false, message = "categoryType 必须是 main、sub 或 root。" });
+            }
             if (string.IsNullOrWhiteSpace(displayName))
                 displayName = Path.GetFileNameWithoutExtension(dwgFile.FileName);
             if (string.IsNullOrWhiteSpace(description))
@@ -289,6 +352,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
         [RequestSizeLimit(1024L * 1024L * 1024L)] // 1GB 限制
         public async Task<IActionResult> ReplaceGraphicFileAsync([FromRoute] int storageId)
         {
+            string newPath = string.Empty;
             try
             {
                 // ========== 1. 检查记录是否存在（与 ReplacePreviewCoreAsync 一致） ==========
@@ -307,28 +371,27 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
                 if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
                     return StatusCode(500, new { success = false, message = "原始存储目录不可用。" });
 
-                // ========== 4. （可选）备份旧文件，然后删除或保留 ==========
+                // ========== 4. 备份旧文件，数据库更新成功后再清理旧文件 ==========
+                string? backupPath = null;
                 if (System.IO.File.Exists(oldPhysicalPath))
                 {
                     try
                     {
-                        // 备份为 .bak 文件（可直接覆盖旧的 .bak）
-                        System.IO.File.Copy(oldPhysicalPath, oldPhysicalPath + ".bak", true);
+                        backupPath = oldPhysicalPath + ".bak";
+                        System.IO.File.Copy(oldPhysicalPath, backupPath, true);
                     }
                     catch
                     {
                         // 备份失败不中断主流程，记录日志即可
                         _logger.LogWarning($"备份旧文件失败: {oldPhysicalPath}");
                     }
-                    // 删除旧文件（也可以保留，但推荐删除以释放空间）
-                    try { System.IO.File.Delete(oldPhysicalPath); } catch { }
                 }
 
                 // ========== 5. 保存新文件（生成唯一文件名，避免缓存问题） ==========
                 string ext = Path.GetExtension(dwgFile.FileName);
                 if (string.IsNullOrWhiteSpace(ext)) ext = ".dwg";
                 string newStoredName = Guid.NewGuid().ToString() + ext;
-                string newPath = Path.Combine(directory, newStoredName);
+                newPath = Path.Combine(directory, newStoredName);
 
                 await using (var fs = new FileStream(newPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
@@ -388,8 +451,24 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
                 if (affectedRows == 0)
                 {
                     // 理论上不应该发生，但做个保护
+                    TryDeleteFile(newPath);
                     _logger.LogError($"数据库更新失败：未找到 storageId={storageId} 的记录");
                     return StatusCode(500, new { success = false, message = "更新数据库记录失败。" });
+                }
+
+                try
+                {
+                    if (!string.Equals(oldPhysicalPath, newPath, StringComparison.OrdinalIgnoreCase)
+                        && System.IO.File.Exists(oldPhysicalPath))
+                    {
+                        System.IO.File.Delete(oldPhysicalPath);
+                    }
+                    if (!string.IsNullOrWhiteSpace(backupPath) && System.IO.File.Exists(backupPath))
+                        System.IO.File.Delete(backupPath);
+                }
+                catch (Exception cleanupException)
+                {
+                    _logger.LogWarning(cleanupException, "主文件数据库更新成功，但清理旧文件失败。storageId={StorageId}", storageId);
                 }
 
                 _logger.LogInformation($"主文件已替换成功：storageId={storageId}, newPath={newPath}");
@@ -407,6 +486,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
             }
             catch (Exception ex)
             {
+                TryDeleteFile(newPath);
                 _logger.LogError(ex, "替换主文件失败");
                 return StatusCode(500, new { success = false, message = "服务器内部错误: " + ex.Message });
             }
@@ -418,6 +498,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
         /// </summary>
         private async Task<IActionResult> ReplacePreviewCoreAsync(int storageId)
         {
+            string newPath = string.Empty;
             try
             {
                 // 1. 检查记录是否存在
@@ -435,18 +516,14 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
                 if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
                     return StatusCode(500, new { success = false, message = "原始存储目录不可用。" });
 
-                // 4. 删除旧预览图（如果存在）
+                // 4. 保留旧预览图，待数据库更新成功后再删除
                 string? oldPreviewPath = row.PreviewImagePath;
-                if (!string.IsNullOrWhiteSpace(oldPreviewPath) && System.IO.File.Exists(oldPreviewPath))
-                {
-                    try { System.IO.File.Delete(oldPreviewPath); } catch { }
-                }
 
                 // 5. 保存新预览图
                 string ext = Path.GetExtension(previewFile.FileName);
                 if (string.IsNullOrWhiteSpace(ext)) ext = ".png";
                 string newFileName = Guid.NewGuid().ToString() + ext;
-                string newPath = Path.Combine(directory, newFileName);
+                newPath = Path.Combine(directory, newFileName);
 
                 await using (var stream = new FileStream(newPath, FileMode.Create))
                 {
@@ -480,13 +557,25 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
                 pId.Value = storageId;
                 cmd.Parameters.Add(pId);
 
-                await cmd.ExecuteNonQueryAsync(); // 执行更新
+                int affectedRows = await cmd.ExecuteNonQueryAsync(); // 执行更新
+                if (affectedRows <= 0)
+                {
+                    TryDeleteFile(newPath);
+                    return StatusCode(500, new { success = false, message = "预览图数据库更新失败。" });
+                }
+
+                if (!string.IsNullOrWhiteSpace(oldPreviewPath)
+                    && !string.Equals(oldPreviewPath, newPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDeleteFile(oldPreviewPath);
+                }
 
                 _logger.LogInformation($"预览图已替换：storageId={storageId}, newPath={newPath}");
                 return Ok(new { success = true, message = "预览图替换成功", previewImagePath = newPath });
             }
             catch (Exception ex)
             {
+                TryDeleteFile(newPath);
                 _logger.LogError(ex, "替换预览图失败");
                 return StatusCode(500, new { success = false, message = "服务器内部错误: " + ex.Message });
             }

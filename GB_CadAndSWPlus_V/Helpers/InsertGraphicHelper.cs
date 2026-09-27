@@ -38,6 +38,20 @@ namespace GB_CadAndSWPlus_V.Helpers
         private static int _copyDwgAllFastBusyFlag = 0;
 
         /// <summary>
+        /// 仅在单侧法兰、法兰或对夹连接中才有意义的法兰/螺栓属性。
+        /// 使用归一化 Tag 比较，兼容历史别名和不同分隔符写法。
+        /// </summary>
+        private static readonly HashSet<string> FlangeRelatedPropertyKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "FLGSTD", "FLGTYPE", "FACETYPE", "FLGOD", "FLGID", "FLGTHK", "FLGQTY",
+            "BOLTQTY", "BOLTLENGTH", "BOLTHOLES", "BOLTHOLEDIA", "BOLTPCD", "BOLTSPEC",
+            "RAISEDFACEHGT", "MATINGFLG", "GASKETMATL", "GASKETTHK", "BOLTMATL", "NUTMATL", "FLGMATL",
+            "法兰标准", "法兰类型", "密封面形式", "法兰外径", "法兰内径", "法兰厚度", "法兰数量",
+            "螺栓数量", "螺栓长度", "螺栓孔数量", "螺栓孔直径", "螺栓孔中心圆直径", "螺栓规格", "密封面高度",
+            "配对法兰", "垫片材质", "垫片厚度", "螺栓材质", "螺母材质", "法兰材质"
+        };
+
+        /// <summary>
         /// 当前是否处于 COPYDWGALLFAST 的 Drag 交互中
         /// </summary>
         public static bool IsCopyDwgAllFastDragging => _isCopyDwgAllFastDragging;
@@ -77,6 +91,16 @@ namespace GB_CadAndSWPlus_V.Helpers
             editedProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var propertyMap = ReadInsertEditablePropertyMap(tr, blockReference, logger);
 
+            string initialConnectionType = FindProperty(propertyMap, "CONN_TYPE", "CONNTYPE", "DNCONN_TYPE", "连接方式", "连接形式")
+                ?? FindProperty(inheritedProperties ?? new Dictionary<string, string>(), "CONN_TYPE", "CONNTYPE", "DNCONN_TYPE", "连接方式", "连接形式")
+                ?? string.Empty;
+            int initialFlangeQuantity = GetInsertFlangeQuantity(initialConnectionType, isStandaloneFlangeOrBlindPlate);
+            if (initialFlangeQuantity <= 0)
+            {
+                RemoveFlangeRelatedProperties(propertyMap);
+                logger.LogInfo($"[插入前属性][非目标连接方式] 已过滤法兰/螺栓属性：CONN_TYPE={initialConnectionType}, 剩余属性数量={propertyMap.Count}");
+            }
+
             // 规范返回的字段可能在源图元中不存在，先补入编辑页面，保证 BOLT_HOLES 等字段可以参与计算。
             if (flangeStandardResponse?.Success == true && flangeStandardResponse.Attributes != null)
             {
@@ -115,17 +139,24 @@ namespace GB_CadAndSWPlus_V.Helpers
                     SetPropertyValueByNormalizedKey(propertyMap, "CONN_TYPE", connectionType);
                 }
                 int flangeQuantity = GetInsertFlangeQuantity(connectionType, isStandaloneFlangeOrBlindPlate);
-                // 螺栓数量按法兰数量计算：法兰为两侧法兰，单侧法兰和对夹为单侧法兰。
-                int boltQuantity = ParseIntegerOrZeroForInsert(boltHoles) * flangeQuantity;
-                SetPropertyValueByNormalizedKey(propertyMap, "FLG_QTY", flangeQuantity.ToString());
-                SetPropertyValueByNormalizedKey(propertyMap, "BOLT_QTY", boltQuantity.ToString());
-                // 源图元可能没有 BOLT_LENGTH 属性，但已有值不能被插入前页面初始化清空。
-                // 若螺栓规范查询成功，窗口后续会用规范结果覆盖该值。
-                if (FindProperty(propertyMap, "BOLT_LENGTH", "BOLTLENGTH", "螺栓长度") == null)
+                if (flangeQuantity > 0)
                 {
-                    SetPropertyValueByNormalizedKey(propertyMap, "BOLT_LENGTH", string.Empty);
+                    // 螺栓数量按法兰数量计算：法兰为两侧法兰，单侧法兰和对夹为单侧法兰。
+                    int boltQuantity = ParseIntegerOrZeroForInsert(boltHoles) * flangeQuantity;
+                    SetPropertyValueByNormalizedKey(propertyMap, "FLG_QTY", flangeQuantity.ToString());
+                    SetPropertyValueByNormalizedKey(propertyMap, "BOLT_QTY", boltQuantity.ToString());
+
+                    // 源图元可能没有 BOLT_LENGTH 属性；有效法兰连接时先补空值，窗口后续再用规范结果覆盖。
+                    if (FindProperty(propertyMap, "BOLT_LENGTH", "BOLTLENGTH", "螺栓长度") == null)
+                        SetPropertyValueByNormalizedKey(propertyMap, "BOLT_LENGTH", string.Empty);
+
+                    logger.LogInfo($"插入前法兰扩展属性已加入：连接方式={connectionType}, FLG_QTY={FindProperty(propertyMap, "FLG_QTY") ?? string.Empty}, BOLT_HOLES={boltHoles}, BOLT_QTY={FindProperty(propertyMap, "BOLT_QTY") ?? string.Empty}, BOLT_LENGTH={FindProperty(propertyMap, "BOLT_LENGTH") ?? string.Empty}");
                 }
-                logger.LogInfo($"插入前法兰扩展属性已加入：连接方式={connectionType}, FLG_QTY={FindProperty(propertyMap, "FLG_QTY") ?? string.Empty}, BOLT_HOLES={boltHoles}, BOLT_QTY={FindProperty(propertyMap, "BOLT_QTY") ?? string.Empty}, BOLT_LENGTH={FindProperty(propertyMap, "BOLT_LENGTH") ?? string.Empty}");
+                else
+                {
+                    RemoveFlangeRelatedProperties(propertyMap);
+                    logger.LogInfo($"[插入前属性][非目标连接方式] 已移除法兰/螺栓属性：CONN_TYPE={connectionType}");
+                }
             }
 
             // 重叠管道的管段号是当前插入图元的关联标识，必须覆盖源 DWG 中的默认管段号。
@@ -252,6 +283,87 @@ namespace GB_CadAndSWPlus_V.Helpers
             return 0;
         }
 
+        /// <summary>
+        /// 判断属性是否属于法兰/螺栓专用字段。
+        /// </summary>
+        private static bool IsFlangeRelatedPropertyKey(string key)
+        {
+            string normalizedKey = NormalizePropertyKey(key);
+            return !string.IsNullOrWhiteSpace(normalizedKey) && FlangeRelatedPropertyKeys.Contains(normalizedKey);
+        }
+
+        /// <summary>
+        /// 从属性集合中移除非目标连接方式不应携带的法兰/螺栓字段。
+        /// </summary>
+        private static void RemoveFlangeRelatedProperties(IDictionary<string, string> properties)
+        {
+            if (properties == null || properties.Count == 0) return;
+
+            foreach (string key in properties.Keys.Where(IsFlangeRelatedPropertyKey).ToList())
+                properties.Remove(key);
+        }
+
+        /// <summary>
+        /// 在炸开前清理临时块中已存在的法兰/螺栓 AttributeReference 和 XRecord。
+        /// 不修改块定义，避免影响后续其他插入。
+        /// </summary>
+        private static void RemoveFlangeRelatedPropertiesFromEntity(
+            DBTrans tr,
+            Entity entity,
+            LogManager logger)
+        {
+            if (tr == null || entity == null) return;
+
+            if (entity is BlockReference blockReference)
+            {
+                foreach (ObjectId attributeId in blockReference.AttributeCollection.Cast<ObjectId>().ToList())
+                {
+                    if (tr.GetObject(attributeId, OpenMode.ForWrite) is not AttributeReference attribute) continue;
+                    string tag = PipelineCadPropertyKeyHelper.Decode((attribute.Tag ?? string.Empty).Trim());
+                    if (!IsFlangeRelatedPropertyKey(tag)) continue;
+
+                    attribute.Erase();
+                    logger.LogInfo($"[插入前属性][非目标连接方式] 已移除法兰 AttributeReference：Tag={tag}, TargetObjectId={entity.ObjectId}");
+                }
+            }
+
+            if (entity.ExtensionDictionary == ObjectId.Null ||
+                tr.GetObject(entity.ExtensionDictionary, OpenMode.ForWrite) is not DBDictionary dictionary)
+                return;
+
+            foreach (DBDictionaryEntry entry in dictionary.Cast<DBDictionaryEntry>().ToList())
+            {
+                string entryKey = PipelineCadPropertyKeyHelper.Decode((entry.Key ?? string.Empty).Trim());
+                if (string.Equals(entry.Key, PipelineCadPropertyKeyHelper.StorageKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (tr.GetObject(entry.Value, OpenMode.ForWrite) is not Xrecord storageRecord) continue;
+                    TypedValue[] values = storageRecord.Data?.AsArray() ?? Array.Empty<TypedValue>();
+                    var keptValues = new List<TypedValue>();
+                    for (int index = 0; index + 1 < values.Length; index += 2)
+                    {
+                        string itemKey = PipelineCadPropertyKeyHelper.Decode(values[index].Value?.ToString()?.Trim() ?? string.Empty);
+                        if (IsFlangeRelatedPropertyKey(itemKey))
+                        {
+                            logger.LogInfo($"[插入前属性][非目标连接方式] 已移除法兰 Storage XRecord：Tag={itemKey}, TargetObjectId={entity.ObjectId}");
+                            continue;
+                        }
+
+                        keptValues.Add(values[index]);
+                        keptValues.Add(values[index + 1]);
+                    }
+
+                    if (values.Length % 2 != 0) keptValues.Add(values[values.Length - 1]);
+                    storageRecord.Data = keptValues.Count == 0 ? null : new ResultBuffer(keptValues.ToArray());
+                    continue;
+                }
+
+                if (!IsFlangeRelatedPropertyKey(entryKey)) continue;
+                if (tr.GetObject(entry.Value, OpenMode.ForWrite) is DBObject record) record.Erase();
+                dictionary.Remove(entry.Key);
+                logger.LogInfo($"[插入前属性][非目标连接方式] 已移除法兰独立 XRecord：Tag={entryKey}, TargetObjectId={entity.ObjectId}");
+            }
+        }
+
         private static bool IsStandaloneFlangeOrBlindPlate(
             string sourceFilePath,
             string? categoryPath,
@@ -301,7 +413,8 @@ namespace GB_CadAndSWPlus_V.Helpers
         /// </summary>
         private static int GetInsertFlangeQuantity(string connectionType, bool isStandaloneFlangeOrBlindPlate)
         {
-            if (isStandaloneFlangeOrBlindPlate) return 1;
+            // 独立法兰/管端盲板没有连接方式时兼容按一个法兰处理；明确的非目标连接方式不能继续生成法兰螺栓数量。
+            if (isStandaloneFlangeOrBlindPlate && string.IsNullOrWhiteSpace(connectionType)) return 1;
 
             // 连接件的“法兰”表示两侧各有一个法兰；“单侧法兰”和“对夹”均只统计一个法兰。
             string value = (connectionType ?? string.Empty).Replace(" ", string.Empty).Replace("　", string.Empty);
@@ -1670,15 +1783,18 @@ namespace GB_CadAndSWPlus_V.Helpers
         private static string? _lastCopyDwgFileNameBase; // 最后一次复制的 DWG 文件基础名称（不含路径和扩展名，用于生成临时文件名，避免重复执行时文件名过长或包含非法字符）
         private static string? _lastCopyDwgPath; // 最后一次复制的 DWG 文件路径（仅在没有字节缓存时使用，存在被删除风险）
         private static GraphicInsertContext? _lastGraphicInsertContext; // 与上一次 DWG 缓存配套的分类上下文，确保重复插入时文件和类型一致
+        private static bool _showPropertyEditorForLastInsert; // 记录本次插入来源：WPF 显示属性窗口，WinForms 不显示
 
         /// <summary>
         /// 执行“整图复制”命令，并缓存相关信息以支持重复执行（空格键再次插入同一图元）
         /// </summary>
         /// <param name="sourceFilePath">源文件路径</param>
         /// <param name="insertContext">当前图元的分类插入上下文</param>
+        /// <param name="showPropertyEditor">是否在插入前打开图元属性编辑窗口；WPF 页面传 true，WinForms 页面传 false</param>
         public static void ExecuteCopyDwgAllFastWithRepeat(
             string sourceFilePath,
-            GraphicInsertContext? insertContext = null)
+            GraphicInsertContext? insertContext = null,
+            bool showPropertyEditor = false)
         {
             // 新增：Drag/执行中禁止再次触发，避免命令重入导致 CAD 崩溃
             if (IsCopyDwgAllFastDragging || IsCopyDwgAllFastBusy)
@@ -1691,6 +1807,7 @@ namespace GB_CadAndSWPlus_V.Helpers
             {
                 // 先缓存上下文，再发出 AutoCAD 命令，保证 COPYDWGALLFASTLAST 能使用同一图元类型。
                 _lastGraphicInsertContext = insertContext;
+                _showPropertyEditorForLastInsert = showPropertyEditor;
 
                 //判断源文件路径有效性
                 if (VariableDictionary.resourcesFile != null && VariableDictionary.resourcesFile.Length > 0)
@@ -1767,7 +1884,7 @@ namespace GB_CadAndSWPlus_V.Helpers
 
                 if (tempFilePath != null)
                     //插入源文件中的图元到当前图纸
-                    CopyDwgAllFast(tempFilePath, _lastGraphicInsertContext);// 直接调用插入方法，传入路径和分类上下文
+                    CopyDwgAllFast(tempFilePath, _lastGraphicInsertContext, _showPropertyEditorForLastInsert);// 直接调用插入方法，传入路径、分类上下文和属性窗口策略
             }
             catch (Exception ex)
             {
@@ -1783,7 +1900,8 @@ namespace GB_CadAndSWPlus_V.Helpers
         [CommandMethod("COPYDWGALLFAST")] // 注册 CAD 命令名，允许在命令行输入 COPYDWGALLFAST 调用
         public static void CopyDwgAllFast(
             string sourceFilePath,
-            GraphicInsertContext? insertContext = null) // 整图插入主方法，同时接收可选的分类上下文
+            GraphicInsertContext? insertContext = null,
+            bool showPropertyEditor = false) // 整图插入主方法，同时接收分类上下文和属性窗口策略
         {
             // 获取 LogManager 的单例实例，用于记录日志
             var logger = LogManager.Instance;
@@ -1828,6 +1946,8 @@ namespace GB_CadAndSWPlus_V.Helpers
             bool insertSuccess = false;
             // 变量 failReason，用于记录如果失败时的具体原因字符串
             string? failReason = null;
+            // WPF 属性窗口返回的最终属性；WinForms 路径保持为空字典。
+            var editedProperties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             try // 主流程异常捕获块，包裹整个插入逻辑
             {
@@ -2098,32 +2218,54 @@ namespace GB_CadAndSWPlus_V.Helpers
 
                         // ================== 结束核心新功能 ==================
 
-                        // 规范匹配及规范属性回写完成后，先让用户确认并编辑最终要插入的图元属性。
-                        bool isStandaloneFlangeOrBlindPlate = IsStandaloneFlangeOrBlindPlate(
-                            sourceFilePath,
-                            insertContext?.CategoryPath,
-                            insertContext?.EntityType);
-                        if (!TryEditPropertiesBeforeInsert(
-                             tr,
-                             fileEntity,
-                             insertContext?.CategoryPath,
-                             logger,
-                             flangeStandardResponse?.Success == true,
-                             flangeStandardResponse,
-                             overlapSourcePropertyMap,
-                             isStandaloneFlangeOrBlindPlate,
-                             out var editedProperties))
+                        if (showPropertyEditor)
                         {
-                            // 用户取消或窗口异常时必须在炸开前退出，事务不会把临时插入保存到当前图纸。
-                            failReason = "用户取消插入或属性编辑窗口打开失败。";
-                            tr.Abort();
-                            return;
-                        }
-                        logger.LogInfo($"[插入流程][步骤11-12] 插入前属性窗口已确认：最终属性数量={editedProperties.Count}");
+                            // WPF 页面需要在炸开前让用户确认并编辑最终要插入的图元属性。
+                            bool isStandaloneFlangeOrBlindPlate = IsStandaloneFlangeOrBlindPlate(
+                                sourceFilePath,
+                                insertContext?.CategoryPath,
+                                insertContext?.EntityType);
+                            if (!TryEditPropertiesBeforeInsert(
+                                 tr,
+                                 fileEntity,
+                                 insertContext?.CategoryPath,
+                                 logger,
+                                 flangeStandardResponse?.Success == true,
+                                 flangeStandardResponse,
+                                 overlapSourcePropertyMap,
+                                 isStandaloneFlangeOrBlindPlate,
+                                 out editedProperties))
+                            {
+                                // 用户取消或窗口异常时必须在炸开前退出，事务不会把临时插入保存到当前图纸。
+                                failReason = "用户取消插入或属性编辑窗口打开失败。";
+                                tr.Abort();
+                                return;
+                            }
+                            logger.LogInfo($"[插入流程][步骤11-12] WPF 插入前属性窗口已确认：最终属性数量={editedProperties.Count}");
 
-                        // 将用户确认后的值写回原始块，随后炸开时这些值会随属性引用进入最终图元。
-                        ApplyEditedPropertiesToEntity(tr, fileEntity, editedProperties, logger);
-                        logger.LogInfo($"[插入流程][步骤13] 用户确认属性已写回临时块：ObjectId={fileEntity.ObjectId}, 属性数量={editedProperties.Count}");
+                            string finalConnectionType = FindProperty(
+                                editedProperties,
+                                "CONN_TYPE", "CONNTYPE", "DNCONN_TYPE", "连接方式", "连接形式")
+                                ?? FindProperty(
+                                    overlapSourcePropertyMap,
+                                    "CONN_TYPE", "CONNTYPE", "DNCONN_TYPE", "连接方式", "连接形式")
+                                ?? string.Empty;
+                            if (GetInsertFlangeQuantity(finalConnectionType, isStandaloneFlangeOrBlindPlate) <= 0)
+                            {
+                                RemoveFlangeRelatedPropertiesFromEntity(tr, fileEntity, logger);
+                                logger.LogInfo($"[插入流程][步骤13前] 非目标连接方式已完成临时块法兰/螺栓属性清理：CONN_TYPE={finalConnectionType}");
+                            }
+
+                            // 将用户确认后的值写回原始块，随后炸开时这些值会随属性引用进入最终图元。
+                            ApplyEditedPropertiesToEntity(tr, fileEntity, editedProperties, logger);
+                            logger.LogInfo($"[插入流程][步骤13] WPF 用户确认属性已写回临时块：ObjectId={fileEntity.ObjectId}, 属性数量={editedProperties.Count}");
+                        }
+                        else
+                        {
+                            // WinForms 页面保持原有直接插入行为，不打开 WPF 属性编辑窗口，
+                            // 也不按空的编辑字典清理临时块属性。
+                            logger.LogInfo("[插入流程][步骤11-13] WinForms 来源：跳过图元属性编辑窗口，直接继续插入。");
+                        }
 
                         // 创建集合 newIds 用于存储分解后产生的所有新实体
                         var newIds = new DBObjectCollection();
@@ -2168,26 +2310,30 @@ namespace GB_CadAndSWPlus_V.Helpers
                             logger);
                         logger.LogInfo($"[插入流程][步骤16] 继承属性、规范属性和用户属性同步流程已完成：实体数量={insertedEntities.Count}, 规范查询成功={flangeStandardResponse?.Success == true}");
 
-                        // 规范同步完成后，为确认窗口中缺失的字段创建隐藏 AttributeReference。
-                        // 这样字段不仅保存在 XRecord 中，也会出现在最终图块属性集合中。
-                        foreach (Entity insertedEntity in insertedEntities)
+                        // WPF 确认窗口中缺失的字段需要创建隐藏 AttributeReference，
+                        // 并再次应用用户编辑值；WinForms 没有编辑字典，因此跳过这两步。
+                        if (showPropertyEditor)
                         {
-                            if (insertedEntity is BlockReference insertedBlockReference)
+                            // 这样字段不仅保存在 XRecord 中，也会出现在最终图块属性集合中。
+                            foreach (Entity insertedEntity in insertedEntities)
                             {
-                                int createdAttributeCount = new StandardPropertySyncService()
-                                    .EnsureEditedAttributes(
-                                        tr.Transaction,
-                                        insertedBlockReference,
-                                        editedProperties);
-                                logger.LogInfo(
-                                    $"炸开后插入属性定义补充完成：ObjectId={insertedBlockReference.ObjectId}, 新增AttributeReference数量={createdAttributeCount}");
+                                if (insertedEntity is BlockReference insertedBlockReference)
+                                {
+                                    int createdAttributeCount = new StandardPropertySyncService()
+                                        .EnsureEditedAttributes(
+                                            tr.Transaction,
+                                            insertedBlockReference,
+                                            editedProperties);
+                                    logger.LogInfo(
+                                        $"炸开后插入属性定义补充完成：ObjectId={insertedBlockReference.ObjectId}, 新增AttributeReference数量={createdAttributeCount}");
+                                }
                             }
-                        }
 
-                        // 规范同步完成后再次应用用户编辑值，确保用户修改优先于默认规范值。
-                        foreach (Entity insertedEntity in insertedEntities)
-                        {
-                            ApplyEditedPropertiesToEntity(tr, insertedEntity, editedProperties, logger);
+                            // 规范同步完成后再次应用用户编辑值，确保用户修改优先于默认规范值。
+                            foreach (Entity insertedEntity in insertedEntities)
+                            {
+                                ApplyEditedPropertiesToEntity(tr, insertedEntity, editedProperties, logger);
+                            }
                         }
 
                         // 检查是否有待创建的标注文本 dimString

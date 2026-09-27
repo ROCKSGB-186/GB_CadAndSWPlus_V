@@ -1,12 +1,66 @@
 using GB_CadAndSWPlus_V.UploadApi.Services;
 using GB_CadAndSWPlus_V.UploadApi.Filters;
 using GB_CadAndSWPlus_V_Server.Services;
+using GB_CadAndSWPlus_V_Server.Middleware;
 using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.ResponseCompression;
 using System.Text.Json;
 
 
  // 1. 创建 Web 应用: 初始化 ASP.NET Core 应用构建器，它会读取配置文件（如 appsettings.json）、环境变量等。
 var builder = WebApplication.CreateBuilder(args);
+
+// 生产自托管部署不读取 launchSettings.json，使用配置文件中的监听地址。
+// 优先使用 Server:Urls（可通过 ASPNETCORE_URLS 提供兼容覆盖）；若未配置，则由 Server:Port 生成监听地址。
+const int defaultApiPort = 10010;
+string? configuredUrls = builder.Configuration["Server:Urls"]
+    ?? builder.Configuration["ASPNETCORE_URLS"];
+int configuredPort = builder.Configuration.GetValue<int?>("Server:Port") ?? defaultApiPort;
+if (configuredPort < 1 || configuredPort > 65535)
+{
+    configuredPort = defaultApiPort;
+}
+
+string serverUrls = string.IsNullOrWhiteSpace(configuredUrls)
+    ? $"http://0.0.0.0:{configuredPort}"
+    : configuredUrls;
+builder.WebHost.UseUrls(serverUrls);
+
+string databaseType = (builder.Configuration["Database:Type"] ?? "DM").Trim().ToUpperInvariant();
+string activeConnectionName = databaseType == "MYSQL" ? "MySQL" : "DM";
+string commonConnectionString = (builder.Configuration["Database:ConnectionString"] ?? string.Empty).Trim();
+string typedConnectionString = (builder.Configuration.GetConnectionString(activeConnectionName) ?? string.Empty).Trim();
+if (string.IsNullOrWhiteSpace(commonConnectionString) && !string.IsNullOrWhiteSpace(typedConnectionString))
+{
+    builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["Database:ConnectionString"] = typedConnectionString
+    });
+}
+
+// 启动配置日志在构建阶段输出到标准日志；不记录连接字符串、密码或密钥。
+builder.Logging.AddConsole();
+
+if (builder.Configuration.GetValue<bool>("Server:ForwardedHeadersEnabled"))
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        // 云负载均衡/反向代理地址可能动态变化；生产环境建议进一步配置 KnownProxies/KnownNetworks。
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
+
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+    {
+        "application/json"
+    });
+});
 
 // Add services to the container.
 // 2. 注册控制器服务: 将 MVC 控制器添加到依赖注入容器中(支持 REST API），使其能够处理 HTTP 请求。
@@ -31,6 +85,13 @@ builder.Services.AddScoped<AuthUserDepartmentService>();
 
 // 图形文件查询服务：文件元数据统一由服务器读取。
 builder.Services.AddScoped<GraphicQueryService>();
+builder.Services.AddScoped<GraphicDetailsService>();
+builder.Services.AddScoped<GraphicCommandService>();
+
+// 图层字典表初始化服务：DM 连接只在服务器端使用，客户端通过 HTTP 调用。
+builder.Services.AddScoped<LayerDictionaryInitializationService>();
+builder.Services.AddScoped<LayerDictionaryService>();
+builder.Services.AddScoped<SystemConfigService>();
 
 // 注册规范查询服务；规范数据库仍由服务器统一访问，客户端只通过 HTTP 查询。
 builder.Services.AddScoped<StandardQueryService>();
@@ -101,6 +162,32 @@ if (!string.IsNullOrWhiteSpace(applicationInsightsConnectionString))
 // 5. 构建应用: 创建 Web 应用实例，准备处理 HTTP 请求。根据上面注册的配置构建出可运行的应用对象。
 var app = builder.Build();
 
+var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("ServerStartup");
+string databaseSchema = (builder.Configuration["Database:Schema"] ?? "CAD_SW_LIBRARY").Trim();
+bool dmConnectionConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Database:ConnectionString"])
+    || !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DM"));
+startupLogger.LogInformation(
+    "服务器启动配置完成。Urls={ServerUrls}; ConfiguredPort={ConfiguredPort}; Environment={EnvironmentName}; " +
+    "SwaggerEnabled={SwaggerEnabled}; HttpsRedirection={HttpsRedirection}",
+    serverUrls,
+    configuredPort,
+    app.Environment.EnvironmentName,
+    app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Server:EnableSwagger"),
+    builder.Configuration.GetValue<bool>("Server:UseHttpsRedirection"));
+startupLogger.LogInformation(
+    "服务器数据库配置状态。DatabaseType={DatabaseType}; Schema={Schema}; DMConnectionConfigured={DMConnectionConfigured}",
+    databaseType,
+    databaseSchema,
+    dmConnectionConfigured);
+
+// 统一记录所有请求的开始、结束、状态码、耗时和异常；请求体仅记录脱敏摘要。
+if (builder.Configuration.GetValue<bool>("Server:ForwardedHeadersEnabled"))
+{
+    app.UseForwardedHeaders();
+}
+app.UseResponseCompression();
+app.UseMiddleware<RequestLoggingMiddleware>();
+
 // 统一异常处理：避免向客户端泄露数据库连接异常和服务器堆栈，详细异常由服务端日志记录。
 app.UseExceptionHandler(exceptionApp =>
 {
@@ -111,7 +198,14 @@ app.UseExceptionHandler(exceptionApp =>
             .CreateLogger("GlobalExceptionHandler");
 
         if (exceptionFeature?.Error != null)
-            logger.LogError(exceptionFeature.Error, "未处理的 API 异常。Path={Path}", context.Request.Path);
+        {
+            logger.LogError(exceptionFeature.Error,
+                "未处理的 API 异常。TraceId={TraceId}; Method={Method}; Path={Path}; Query={Query}",
+                context.TraceIdentifier,
+                context.Request.Method,
+                context.Request.Path,
+                context.Request.QueryString.HasValue ? context.Request.QueryString.Value : string.Empty);
+        }
 
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         context.Response.ContentType = "application/json; charset=utf-8";

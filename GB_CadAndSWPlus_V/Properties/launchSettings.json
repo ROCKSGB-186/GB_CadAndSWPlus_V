@@ -5,6 +5,12 @@
       "executablePath": "C:\\Program Files\\Autodesk\\AutoCAD 2024\\acad.exe",
       "commandLineArgs": "/nologo",
       "nativeDebugging": false
+    },
+    "GB_CadAndSWPlus_V_SolidWorksAddIn": {
+      "commandName": "Executable",
+      "executablePath": "D:\\Program Files\\SolidWorkS2022\\SOLIDWORKS\\SLDWORKS.exe",
+      "commandLineArgs": "/nologo",
+      "nativeDebugging": false
     }
   }
 }

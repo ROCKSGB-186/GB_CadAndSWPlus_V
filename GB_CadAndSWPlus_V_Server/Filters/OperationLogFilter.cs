@@ -8,6 +8,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+using System.Text.Json;
 using LogLevel = GB_CadAndSWPlus_V_Server.Services.LogLevel;
 
 namespace GB_CadAndSWPlus_V.UploadApi.Filters
@@ -41,6 +43,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             string method = request.Method;
             string path = request.Path;
             string queryString = request.QueryString.HasValue ? request.QueryString.Value! : string.Empty;
+            string traceId = context.HttpContext.TraceIdentifier;
 
             // 2. 获取关键请求参数摘要（避免日志过大，只取前 500 字符）
             string? bodySummary = null;
@@ -52,7 +55,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                     using var reader = new StreamReader(request.Body, Encoding.UTF8, leaveOpen: true);
                     string body = await reader.ReadToEndAsync();
                     request.Body.Position = 0;
-                    bodySummary = body.Length > 500 ? body.Substring(0, 500) + "..." : body;
+                    bodySummary = SanitizeBody(body);
                 }
                 catch
                 {
@@ -64,6 +67,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             var sb = new StringBuilder();
             sb.AppendLine($"========== 请求开始 ==========");
             sb.AppendLine($"  客户端IP    : {clientIp}");
+            sb.AppendLine($"  TraceId     : {traceId}");
             sb.AppendLine($"  请求方式    : {method}");
             sb.AppendLine($"  请求路径    : {path}");
             if (!string.IsNullOrEmpty(queryString))
@@ -71,6 +75,9 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             if (bodySummary != null)
                 sb.AppendLine($"  请求体摘要  : {bodySummary}");
             sb.AppendLine($"  请求时间    : {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}");
+
+            sb.AppendLine($"  内容类型    : {request.ContentType ?? string.Empty}");
+            sb.AppendLine($"  用户标识    : {context.HttpContext.User?.Identity?.Name ?? "匿名"}");
 
             _logger.WriteLine(LogLevel.Info, sb.ToString());
 
@@ -93,7 +100,9 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             var resultSb = new StringBuilder();
             resultSb.AppendLine($"========== 请求结束 ==========");
             resultSb.AppendLine($"  请求路径    : {path}");
+            resultSb.AppendLine($"  TraceId     : {traceId}");
             resultSb.AppendLine($"  耗时(ms)    : {sw.ElapsedMilliseconds}");
+            resultSb.AppendLine($"  客户端IP    : {clientIp}");
 
             if (occurredException != null)
             {
@@ -104,6 +113,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 resultSb.AppendLine($"  堆栈摘要    : {occurredException.StackTrace?[..Math.Min(occurredException.StackTrace?.Length ?? 0, 1000)]}");
                 _logger.WriteLine(LogLevel.Error, resultSb.ToString());
             }
+
             else if (resultContext != null)
             {
                 // ActionFilter 执行结束时，ObjectResult 可能还没有经过响应执行器写入 Response.StatusCode。
@@ -147,6 +157,43 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             // 如果是服务器端异常，重新抛出以让框架处理
             if (occurredException != null)
                 throw occurredException;
+        }
+
+        private static string SanitizeBody(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return string.Empty;
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(body);
+                Dictionary<string, object?> sanitized = new(StringComparer.OrdinalIgnoreCase);
+                foreach (JsonProperty property in document.RootElement.EnumerateObject())
+                {
+                    sanitized[property.Name] = IsSensitiveName(property.Name)
+                        ? "***"
+                        : property.Value.ValueKind == JsonValueKind.String
+                            ? property.Value.GetString()
+                            : property.Value.Clone();
+                }
+
+                string result = JsonSerializer.Serialize(sanitized);
+                return result.Length > 500 ? result.Substring(0, 500) + "..." : result;
+            }
+            catch
+            {
+                return "(非 JSON 请求体，已隐藏)";
+            }
+        }
+
+        private static bool IsSensitiveName(string name)
+        {
+            return name.Contains("password", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("pwd", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("token", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("connection", StringComparison.OrdinalIgnoreCase)
+                || name.Contains("configvalue", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>

@@ -36,7 +36,9 @@ public sealed class DepartmentQueryService
         {
             if (databaseType == "DM")
             {
-                string connectionString = GetConnectionString("DM");
+                string connectionString = (_configuration["Database:ConnectionString"]
+                    ?? _configuration.GetConnectionString("DM")
+                    ?? string.Empty).Trim();
                 _logger.LogError(
                     ex,
                     "查询部门失败。DatabaseType=DM, Server={Server}, Port={Port}, Schema={Schema}",

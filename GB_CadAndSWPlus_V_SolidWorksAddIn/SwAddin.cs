@@ -1,8 +1,11 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swpublished;
+using GB_CadAndSWPlus_V.SolidWorksAddIn.Views;
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Windows;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 {
@@ -35,6 +38,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         /// 存储 SolidWorks 插件的 Cookie，用于标识插件在 SolidWorks 中的唯一实例。
         /// </summary>
         private int _cookie;
+        private ICommandManager? _commandManager;
+        private ICommandGroup? _commandGroup;
+        private readonly List<Window> _openWindows = new List<Window>();
+
+        private const int CommandGroupId = 2022;
+
+        // SolidWorks 会在加载插件后调用 ConnectToSW；这里是插件获得
+        // SolidWorks COM 应用对象、Cookie 以及创建菜单/工具栏命令的入口。
         /// <summary>
         /// 连接到 SolidWorks 应用程序，并获取插件的 Cookie，用于标识插件在 SolidWorks 中的唯一实例。
         /// </summary>
@@ -57,6 +68,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 }
 
                 _cookie = Cookie;
+                // 将当前插件对象回传给 SolidWorks。后续 CommandManager 的回调方法
+                // 会根据这里登记的对象，通过方法名反射调用 ShowPipelineWindow 等方法。
+                _solidWorks.SetAddinCallbackInfo(0, this, _cookie);
+                RegisterCommands();
                 return true;
             }
             catch
@@ -73,9 +88,136 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         /// <returns>如果成功断开连接，则返回 true；否则返回 false。</returns>
         public bool DisconnectFromSW()
         {
+            // SolidWorks 退出或卸载插件时先关闭由插件创建的 WPF 窗口，
+            // 避免窗口继续持有宿主句柄或 SolidWorks COM 对象。
+            foreach (Window window in _openWindows.ToArray())
+            {
+                window.Close();
+            }
+
+            _openWindows.Clear();
+            _commandGroup = null;
+            _commandManager = null;
             _solidWorks = null;
             _cookie = 0;
             return true;
+        }
+
+        private void RegisterCommands()
+        {
+            if (_solidWorks == null)
+            {
+                return;
+            }
+
+            // Cookie 用于取得当前插件专属的命令管理器，避免与其他插件的命令冲突。
+            _commandManager = _solidWorks.GetCommandManager(_cookie);
+            int errors = 0;
+            // 一个 CommandGroup 可以同时生成 SolidWorks 菜单项和工具栏按钮。
+            // 命令项中的回调名称必须与本类的公开方法名称一致。
+            _commandGroup = _commandManager.CreateCommandGroup2(
+                CommandGroupId,
+                AddInTitle,
+                AddInDescription,
+                AddInDescription,
+                -1,
+                true,
+                ref errors);
+
+            _commandGroup.AddCommandItem2(
+                "管道",
+                -1,
+                "打开管道页面",
+                "打开管道页面",
+                0,
+                nameof(ShowPipelineWindow),
+                nameof(IsCommandEnabled),
+                1,
+                0);
+            _commandGroup.AddCommandItem2(
+                "法兰",
+                -1,
+                "打开法兰页面",
+                "打开法兰页面",
+                0,
+                nameof(ShowFlangeWindow),
+                nameof(IsCommandEnabled),
+                2,
+                0);
+            _commandGroup.AddCommandItem2(
+                "页面面板",
+                -1,
+                "打开页面面板",
+                "打开页面面板",
+                0,
+                nameof(ShowRightPanel),
+                nameof(IsCommandEnabled),
+                3,
+                0);
+
+            // 激活命令组后，SolidWorks 才会把菜单和工具栏真正显示出来。
+            _commandGroup.HasToolbar = true;
+            _commandGroup.HasMenu = true;
+            _commandGroup.Activate();
+        }
+
+        public int IsCommandEnabled(int commandId)
+        {
+            // SolidWorks 约定返回 1 表示启用，返回 0 表示禁用。
+            return _solidWorks == null ? 0 : 1;
+        }
+
+        public void ShowPipelineWindow()
+        {
+            ShowOwnedWindow(new PipelineWindow(new IntPtr(GetSolidWorksWindowHandle())));
+        }
+
+        public void ShowFlangeWindow()
+        {
+            ShowOwnedWindow(new FlangeWindow(new IntPtr(GetSolidWorksWindowHandle())));
+        }
+
+        public void ShowRightPanel()
+        {
+            var window = new Window
+            {
+                Title = AddInTitle,
+                Width = 320,
+                Height = 700,
+                ShowInTaskbar = false,
+                Content = new RightWindows
+                {
+                    Sw = _solidWorks
+                }
+            };
+
+            ShowOwnedWindow(window);
+        }
+
+        private int GetSolidWorksWindowHandle()
+        {
+            if (_solidWorks == null)
+            {
+                throw new InvalidOperationException("SolidWorks 尚未连接。");
+            }
+
+            // WPF 窗口不是 SolidWorks 原生窗口，必须使用宿主 HWND 设置 Owner，
+            // 这样窗口才能随 SolidWorks 最小化/恢复，并保持正确的前后关系。
+            return _solidWorks.IFrameObject().GetHWnd();
+        }
+
+        private void ShowOwnedWindow(Window window)
+        {
+            if (_solidWorks == null)
+            {
+                window.Close();
+                return;
+            }
+
+            // 保存窗口引用，断开插件时统一关闭；Closed 事件负责移除已关闭窗口。
+            _openWindows.Add(window);
+            window.Closed += (_, _) => _openWindows.Remove(window);
+            window.Show();
         }
 
         /// <summary>
@@ -85,6 +227,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         [ComRegisterFunction]
         public static void RegisterFunction(Type type)
         {
+            // SolidWorks 根据 HKLM 下的 AddIns\{GUID} 查找插件，并读取标题和描述。
+            // 写入 HKLM 通常需要管理员权限。
             string addInKeyPath = $"SOFTWARE\\SolidWorks\\AddIns\\{{{AddInGuid}}}";
             using (RegistryKey? addInKey = Registry.LocalMachine.CreateSubKey(addInKeyPath))
             {
@@ -101,6 +245,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
             using (RegistryKey? startupKey = Registry.CurrentUser.CreateSubKey(
                 $"Software\\SolidWorks\\AddInsStartup\\{{{AddInGuid}}}"))
             {
+                // HKCU 项控制插件是否随 SolidWorks 启动自动加载；值 1 表示启用。
                 startupKey?.SetValue(null, 1, RegistryValueKind.DWord);
             }
         }
@@ -111,6 +256,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         [ComUnregisterFunction]
         public static void UnregisterFunction(Type type)
         {
+            // 卸载插件时删除两个注册表位置，避免 SolidWorks 继续显示失效插件。
             Registry.LocalMachine.DeleteSubKeyTree(
                 $"SOFTWARE\\SolidWorks\\AddIns\\{{{AddInGuid}}}", false);
             Registry.CurrentUser.DeleteSubKeyTree(

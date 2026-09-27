@@ -694,21 +694,23 @@ namespace GB_CadAndSWPlus_V.UniFiedStandards
         /// </summary>
         private static bool IsBoltStatisticCandidate(DeviceInfo device)
         {
-            // 只要存在明确的螺栓属性，就应当纳入统计，不能强制依赖连接方式或块名称。
-            if (HasAnyAttributeValue(device.Attributes,
-                "BOLT_QTY", "BOLT_LENGTH", "BOLT_MATL", "BOLT_SPEC", "BOLT_SPECIFICATION", "BOLT_SIZE"))
-            {
-                return true;
-            }
-
+            // 有明确连接方式的图元必须优先按连接方式判断，避免非目标连接方式携带历史螺栓属性时被误统计。
             string connectionType = GetFirstAttributeValue(device.Attributes,
                 "连接方式", "连接形式", "CONN_TYPE", "CONNTYPE", "DNCONN_TYPE", "CONNECTION_TYPE", "CONNECTION_MODE", "ConnectionType");
-            string normalizedConnectionType = Regex.Replace(connectionType ?? string.Empty, @"\s|[-_/]", string.Empty);
-            bool isFlangeConnection = string.Equals(normalizedConnectionType, "法兰", StringComparison.OrdinalIgnoreCase) ||
-                                      string.Equals(normalizedConnectionType, "法兰连接", StringComparison.OrdinalIgnoreCase) ||
-                                      string.Equals(normalizedConnectionType, "对夹", StringComparison.OrdinalIgnoreCase) ||
-                                      string.Equals(normalizedConnectionType, "对夹连接", StringComparison.OrdinalIgnoreCase);
-            if (isFlangeConnection)
+            if (!string.IsNullOrWhiteSpace(connectionType))
+            {
+                string normalizedConnectionType = Regex.Replace(connectionType, @"\s|[-_/]", string.Empty);
+                return string.Equals(normalizedConnectionType, "法兰", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(normalizedConnectionType, "法兰连接", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(normalizedConnectionType, "单侧法兰", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(normalizedConnectionType, "单侧法兰连接", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(normalizedConnectionType, "对夹", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(normalizedConnectionType, "对夹连接", StringComparison.OrdinalIgnoreCase);
+            }
+
+            // 没有连接方式字段的历史图元继续兼容螺栓属性和法兰/管端盲板名称兜底。
+            if (HasAnyAttributeValue(device.Attributes,
+                "BOLT_QTY", "BOLT_LENGTH", "BOLT_MATL", "BOLT_SPEC", "BOLT_SPECIFICATION", "BOLT_SIZE"))
             {
                 return true;
             }

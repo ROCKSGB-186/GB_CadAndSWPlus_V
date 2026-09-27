@@ -177,21 +177,43 @@ namespace GB_CadAndSWPlus_V.Helpers
         {
             try
             {
-                // 2. 从界面读取（按优先级：WinForm > WPF > 默认值）
-                double scale;
-                // 优先 WinForm
+                // WinForm 模式仍优先读取 WinForm 输入框，保持原有兼容行为。
                 if (VariableDictionary.winForm_Status)
                 {
-                     scale = GetDrawingScaleFrom_Winform();
-                   
+                    double winFormScale = GetDrawingScaleFrom_Winform();
+                    if (winFormScale > 0 && !double.IsNaN(winFormScale) && !double.IsInfinity(winFormScale))
+                    {
+                        _cachedScale = winFormScale;
+                        LogManager.Instance.LogInfo($"使用 WinForm 绘图比例 {winFormScale}");
+                        return winFormScale;
+                    }
                 }
-                else
+
+                // WPF 输入框的 TextChanged 事件会持续同步该全局值。
+                // CAD 命令可能不在 WPF UI 线程执行，因此优先使用缓存，避免跨线程访问 TextBox。
+                if (useCache && VariableDictionary.wpfTextBoxScale > 0 &&
+                    !double.IsNaN(VariableDictionary.wpfTextBoxScale) &&
+                    !double.IsInfinity(VariableDictionary.wpfTextBoxScale))
                 {
-                    scale = GetDrawingScaleFrom_Wpf();
+                    _cachedScale = VariableDictionary.wpfTextBoxScale;
+                    LogManager.Instance.LogInfo($"使用 WPF 缓存绘图比例 {_cachedScale}");
+                    return _cachedScale;
                 }
-                // 4. 所有方法都失败，返回默认值
-                LogManager.Instance.LogInfo($"使用比例 {scale}");
-                return scale;
+
+                // 缓存无效时才尝试读取 WPF 控件，作为初始化/兼容场景的后备路径。
+                double scale;
+                scale = GetDrawingScaleFrom_Wpf();
+                if (scale > 0 && !double.IsNaN(scale) && !double.IsInfinity(scale))
+                {
+                    _cachedScale = scale;
+                    VariableDictionary.wpfTextBoxScale = scale;
+                    LogManager.Instance.LogInfo($"使用 WPF 控件绘图比例 {scale}");
+                    return scale;
+                }
+
+                _cachedScale = 100.0;
+                LogManager.Instance.LogInfo("未读取到有效绘图比例，使用默认比例 100");
+                return _cachedScale;
             }
             catch (Exception ex)
             {
@@ -246,14 +268,20 @@ namespace GB_CadAndSWPlus_V.Helpers
 
                 // 优先取输入文本
                 string text = textBox.Text;
-                if (!string.IsNullOrWhiteSpace(text) && double.TryParse(text, out double result))
+                if (!string.IsNullOrWhiteSpace(text) &&
+                    (double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out double result) ||
+                     double.TryParse(text, NumberStyles.Any, CultureInfo.CurrentCulture, out result)) &&
+                    result > 0 && !double.IsNaN(result) && !double.IsInfinity(result))
                 {
                     VariableDictionary.wpfTextBoxScale = result; // 保持原有缓存
                     return result;
                 }
 
                 // 文本为空或非法时，尝试取 Tag 值
-                if (textBox.Tag is string tagValue && double.TryParse(tagValue, out double tagResult))
+                if (textBox.Tag is string tagValue &&
+                    (double.TryParse(tagValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double tagResult) ||
+                     double.TryParse(tagValue, NumberStyles.Any, CultureInfo.CurrentCulture, out tagResult)) &&
+                    tagResult > 0 && !double.IsNaN(tagResult) && !double.IsInfinity(tagResult))
                 {
                     VariableDictionary.wpfTextBoxScale = tagResult;
                     return tagResult;

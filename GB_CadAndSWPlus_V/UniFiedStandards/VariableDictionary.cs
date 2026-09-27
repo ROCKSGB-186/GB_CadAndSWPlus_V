@@ -22,7 +22,7 @@ namespace GB_CadAndSWPlus_V.UniFiedStandards
         /// </summary>
         public static int _dataBaseServerPort;
         /// <summary>
-        /// 默认为 10010，后续可从配置文件中动态加载
+        /// 统一 API 服务端口，由 ApiEndpoint 固定为 10010；数据库端口使用 _dataBaseServerPort。
         /// </summary>
         public static int _apiPort;
         /// <summary>

@@ -14,17 +14,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
     /// </summary>
     public class CategoryManager
     {
-        /// <summary>
-        /// 数据库管理器
-        /// </summary>
-        private readonly DatabaseManager _databaseManager;
-        /// <summary>
-        /// 数据库管理器
-        /// </summary>
-        /// <param name="databaseManager"></param>
-        public CategoryManager(DatabaseManager databaseManager)
+        public CategoryManager()
         {
-            _databaseManager = databaseManager;
         }
 
         /// <summary>
@@ -385,12 +376,12 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// </summary>
         /// <returns></returns>
         public async Task RefreshCategoryTreeAsync(CategoryTreeNode _selectedCategoryNode,ItemsControl _categoryTreeView,
-            List<CategoryTreeNode> _categoryTreeNodes,DatabaseManager databaseManager)
+            List<CategoryTreeNode> _categoryTreeNodes)
         {
             try
             {
                 // 重新加载分类和子分类数据 LoadCategoryTreeAsync
-                await LoadCategoryTreeAsync(_categoryTreeNodes, databaseManager);
+                await LoadCategoryTreeAsync(_categoryTreeNodes);
 
                 // 更新UI显示
                 DisplayCategoryTree(_categoryTreeView, _categoryTreeNodes);
@@ -414,7 +405,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// 加载架构树数据
         /// </summary>
         /// <returns></returns>
-        public async Task LoadCategoryTreeAsync(List<CategoryTreeNode> _categoryTreeNodes, DatabaseManager databaseManager)
+        public async Task LoadCategoryTreeAsync(List<CategoryTreeNode> _categoryTreeNodes)
         {
             try
             {
@@ -852,7 +843,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             else
             {
                 // 父级是子分类，需要确定是几级子分类
-                var parentSubcategory = await _databaseManager.GetCadSubcategoryByIdAsync(parentId);
+                var parentSubcategory = await new CategoryApiService().GetSubcategoryByIdAsync(parentId).ConfigureAwait(true);
                 if (parentSubcategory != null)
                 {
                     return parentSubcategory.Level + 1;
