@@ -6,6 +6,9 @@ using GB_CadAndSWPlus_V.FunctionalMethod;
 using GB_CadAndSWPlus_V.Helpers;
 using GB_CadAndSWPlus_V.Models;
 using GB_CadAndSWPlus_V.UniFiedStandards;
+using GB_CadAndSWPlus_V.Shared;
+using GB_CadAndSWPlus_V.Shared.Models;
+using GB_CadAndSWPlus_V.Shared.Services;
 using IFoxCAD.Cad;
 using NPOI.SS.Formula.Functions;
 using NPOI.SS.UserModel;
@@ -88,8 +91,9 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             double y = center.Y + distance * Math.Sin(radians);
             return new Point3d(x, y, center.Z);
         }
-    }
+   
 
+    }
     /// <summary>
     /// 委托：在要发送内容的类里，建立一个委托，再实例化这个委托。同时给实例化的委托sendSum传值（sendSum?.invoke(传递值)）；在接收类里建立一个赋值方法，这个方法是这个值给到接收文本框显示的值，再在接收页面初始化方法里把这个委托值给到赋值方法即可；
     /// </summary>
@@ -576,15 +580,17 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// <summary>
         /// 显示主窗体
         /// </summary>
-        [CommandMethod(nameof(ffff))]
+        [CommandMethod("ffff", CommandFlags.Session)]
         public static void ffff()
         {
+            WriteCadMessage("\\n[GB_CAD] ffff 命令已进入，正在打开本地工具页面...\\n");
             try
             {
                 DateTime setDate = new DateTime(2026, 12, 30);
                 if (DateTime.Now < setDate)
                 {
                     FormMain.GB_CadToolsForm.ShowToolsPanel();
+                    WriteCadMessage("[GB_CAD] 本地工具页面已显示。\\n");
                 }
                 else
                 {
@@ -594,25 +600,39 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             }
             catch (Exception ex)
             {
+                WriteCadMessage($"[GB_CAD] ffff 执行失败：{ex.Message}\\n");
                 LogManager.Instance.LogError($"显示主窗体时出错: {ex.Message}");
                 LogManager.Instance.LogError($"错误堆栈: {ex.StackTrace}");
             }
         }
-        [CommandMethod(nameof(gfff))]
+        [CommandMethod("gfff", CommandFlags.Session)]
         public static void gfff()
         {
+            WriteCadMessage("\\n[GB_CAD] gfff 命令已进入，正在检查共享登录会话...\\n");
             try
             {
                 DateTime setDate = new DateTime(2026, 12, 30);
                 if (DateTime.Now < setDate)
                 {
                     LogManager.Instance.LogInfo("\n开始显示主窗体...");
-                    //打开登录窗口
-                    var login = new LoginWindow();
-                    if (login.ShowDialog() != true)
+                    var cadLoginService = new UnifiedCadLoginService();
+                    var sharedSessionStore = new SharedLoginSessionStore();
+                    UnifiedLoginResult sharedLoginResult = TrySharedCadLogin(cadLoginService, sharedSessionStore);
+                    if (sharedLoginResult == null)
                     {
-                        LogManager.Instance.LogInfo("\n登录窗口取消或关闭。");
-                        return;
+                        // 共享会话不存在或已失效时，显示 CAD 风格的统一登录页面。
+                        WriteCadMessage("[GB_CAD] 未找到有效共享会话，正在打开统一登录窗口...\\n");
+                        var unifiedLogin = new UnifiedLoginWindow(
+                            UnifiedLoginPlatform.Cad,
+                            cadLoginService,
+                            sharedSessionStore);
+                        if (unifiedLogin.ShowDialog() != true)
+                        {
+                            WriteCadMessage("[GB_CAD] 登录窗口已取消或关闭。\\n");
+                            LogManager.Instance.LogInfo("\n登录窗口取消或关闭。");
+                            return;
+                        }
+                        WriteCadMessage("[GB_CAD] 登录成功，正在创建 CAD 工具面板...\\n");
                     }
 
                     //WpfMainWindow.wpfMainWindowsIsOpenClose = true;
@@ -627,11 +647,12 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
 
                             var wpfWindows = new WpfMainWindow();//初始化这个图库管理窗体；
 
-                            // 登录窗口创建的数据库实例仅注入给旧版 CAD 兼容路径；
+                            // 共享登录窗口完成认证和 CAD 配置后，创建旧版兼容数据库实例；
                             // 图元、分类、用户和文件业务仍由主窗体通过 API 健康检查决定。
-                            if (login.CreatedDatabaseManager != null)
+                            DatabaseManager legacyDatabase = CreateLegacyDatabaseManager();
+                            if (legacyDatabase != null)
                             {
-                                wpfWindows.SetInitialDatabase(login.CreatedDatabaseManager);
+                                wpfWindows.SetInitialDatabase(legacyDatabase);
                             }
 
                             var host = new ElementHost()//初始化子面板
@@ -645,19 +666,25 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                             Wpf_Cad_PaletteSet.Dock = DockSides.Left;//窗体容器的停靠位置
                                                                      //FormMain.GB_CadToolsForm.ShowToolsPanel();
                             LogManager.Instance.LogInfo("\n主窗体已成功创建并显示。");
+                            WriteCadMessage("[GB_CAD] CAD 工具面板已显示。\\n");
                             return;
                         }
+
                         catch (Exception ex)
                         {
+                            WriteCadMessage($"[GB_CAD] 创建 CAD 工具面板失败：{ex.Message}\\n");
                             LogManager.Instance.LogError($"创建主窗体时出错: {ex.Message}");
                             LogManager.Instance.LogError($"错误堆栈: {ex.StackTrace}");
                         }
                     }
+
                     else
                     {
                         Wpf_Cad_PaletteSet.Visible = !Wpf_Cad_PaletteSet.Visible;
+                        WriteCadMessage($"[GB_CAD] CAD 工具面板可见性：{Wpf_Cad_PaletteSet.Visible}。\\n");
                         LogManager.Instance.LogInfo($"\n主窗体可见性已切换为: {Wpf_Cad_PaletteSet.Visible}");
                     }
+
                 }
                 else
                 {
@@ -667,8 +694,107 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             }
             catch (Exception ex)
             {
+                WriteCadMessage($"[GB_CAD] gfff 执行失败：{ex.Message}\\n");
                 LogManager.Instance.LogError($"显示主窗体时出错: {ex.Message}");
                 LogManager.Instance.LogError($"错误堆栈: {ex.StackTrace}");
+            }
+        }
+
+        /// <summary>
+        /// 向 AutoCAD 命令行输出诊断信息，避免命令异常时看起来像“没有反应”。
+        /// </summary>
+        private static void WriteCadMessage(string message)
+        {
+            try
+            {
+                Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage(message);
+            }
+            catch
+            {
+                // AutoCAD 尚未有活动文档时不阻断登录或本地页面逻辑。
+            }
+        }
+
+        /// <summary>
+        /// 清除当前 CAD/SolidWorks 共享账号并重新打开统一登录窗口。
+        /// </summary>
+        [CommandMethod("GB_SWITCH_ACCOUNT", CommandFlags.Session)]
+        public static void SwitchSharedAccount()
+        {
+            WriteCadMessage("\n[GB_CAD] 正在切换共享账号...\n");
+            try
+            {
+                new SharedLoginSessionStore().Clear();
+                WriteCadMessage("[GB_CAD] 当前共享账号已清除，正在打开登录窗口...\n");
+                gfff();
+            }
+            catch (Exception ex)
+            {
+                WriteCadMessage($"[GB_CAD] 切换账号失败：{ex.Message}\n");
+                LogManager.Instance.LogError($"切换共享账号失败: {ex}");
+            }
+        }
+
+        private static UnifiedLoginResult TrySharedCadLogin(
+            UnifiedCadLoginService loginService,
+            SharedLoginSessionStore sessionStore)
+        {
+            try
+            {
+                SharedLoginSession session = sessionStore.Load();
+                if (string.IsNullOrWhiteSpace(session.ServerHost) ||
+                    string.IsNullOrWhiteSpace(session.Username) ||
+                    string.IsNullOrWhiteSpace(session.EncryptedPassword))
+                    return null;
+
+                UnifiedLoginResult result = loginService
+                    .LoginWithSharedSessionAsync(session)
+                    .GetAwaiter()
+                    .GetResult();
+                if (result?.Success == true)
+                    return result;
+
+                sessionStore.Clear();
+            }
+            catch (Exception ex)
+            {
+                LogManager.Instance.LogInfo("共享 CAD 会话自动登录失败，将显示登录页面：" + ex.Message);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 根据共享登录页面已写入的 CAD 配置创建旧版数据库兼容实例。
+        /// 创建失败不阻断 API 和本地资源功能。
+        /// </summary>
+        private static DatabaseManager CreateLegacyDatabaseManager()
+        {
+            try
+            {
+                string databaseType = (VariableDictionary._databaseType ?? "DM").ToUpperInvariant();
+                string databaseName = string.IsNullOrWhiteSpace(VariableDictionary._dataBaseName)
+                    ? (databaseType == "MYSQL" ? "cad_sw_library" : "CAD_SW_LIBRARY")
+                    : VariableDictionary._dataBaseName;
+                string connectionString = databaseType == "MYSQL"
+                    ? $"Server={VariableDictionary._serverIP};Port={VariableDictionary._dataBaseServerPort};Database={databaseName};Uid={VariableDictionary._dbUserName};Pwd={VariableDictionary._dbPassWord};Allow User Variables=True;"
+                    : $"Server={VariableDictionary._serverIP};Port={VariableDictionary._dataBaseServerPort};Schema={databaseName};User Id={VariableDictionary._dbUserName};Password={VariableDictionary._dbPassWord};";
+
+                VariableDictionary._newConnectionString = connectionString;
+                DatabaseManager database = new DatabaseManager(connectionString);
+                if (database.IsDatabaseAvailable)
+                {
+                    LogManager.Instance.LogInfo("共享登录后旧版 CAD 兼容数据库连接成功。");
+                    return database;
+                }
+
+                LogManager.Instance.LogWarning("共享登录后旧版 CAD 兼容数据库不可用，继续使用 API/本地资源功能。");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Instance.LogWarning("创建旧版 CAD 兼容数据库失败，继续使用 API/本地资源功能：" + ex.Message);
+                return null;
             }
         }
 

@@ -16,3 +16,20 @@ Content-Type: application/json
 {
   "value": "3.26.0907.159"
 }
+
+###
+
+// 查询 SolidWorks 平台模板；客户端使用此接口获得真实下载路径。
+GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/api/sw-platform-templates/GB-PIPELINE
+Accept: application/json
+
+###
+
+// 管理员检查模板绑定；当前阶段使用临时管理员请求头。
+GET {{GB_CadAndSWPlus_V_Server_HostAddress}}/api/sw-platform-templates/GB-PIPELINE/binding-check
+Accept: application/json
+X-Operator-Name: admin
+
+
+###
+

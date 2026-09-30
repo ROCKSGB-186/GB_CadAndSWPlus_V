@@ -8,6 +8,30 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
     public class ImportEntityDto
     {
         /// <summary>
+        /// CAD 图纸中的稳定业务实例编号。不能使用文件名或 AutoCAD Handle 代替。
+        /// </summary>
+        public string? PidInstanceId { get; set; }
+        /// <summary>
+        /// 当前图纸的业务编号或来源标识。
+        /// </summary>
+        public string? DrawingId { get; set; }
+        /// <summary>
+        /// CAD 实体 Handle，仅用于辅助定位和诊断，不作为跨文件主键。
+        /// </summary>
+        public string? SourceHandle { get; set; }
+        /// <summary>
+        /// 统一图元库对象编号，后续由服务器分类/图元库匹配后填充。
+        /// </summary>
+        public int? LibraryItemId { get; set; }
+        /// <summary>
+        /// 业务对象类型，例如 ButterflyValve、Flange、BlindPlate。
+        /// </summary>
+        public string? ObjectType { get; set; }
+        /// <summary>
+        /// 实例版本，首期新建实例从 1 开始。
+        /// </summary>
+        public int InstanceVersion { get; set; } = 1;
+        /// <summary>
         /// 包含文件存储相关信息的对象
         /// </summary>
         public FileStorage FileStorage { get; set; } = new FileStorage();

@@ -57,6 +57,36 @@ IIS 的 `<environmentVariables>` 中应增加同名的 `ConnectionStrings__DM` �
 - `USERS`
 - `CAD_CATEGORIES`
 
+### 2.1 统一登录会话表迁移
+
+统一登录新增独立会话表，不修改已有 `USERS`、`DEPARTMENTS` 表，也不会迁移或保存用户明文密码。
+
+根据实际数据库类型，只执行一次对应脚本：
+
+- 达梦：`Resources/Standards/auth_session_schema_dm.sql`
+- MySQL：`Resources/Standards/auth_session_schema_mysql.sql`
+
+建议执行顺序：
+
+1. 备份当前业务数据库。
+2. 确认 `Database:Type` 与要执行的脚本一致。
+3. 使用业务 Schema/数据库管理员账号执行脚本。
+4. 检查 `AUTH_SESSIONS`（达梦）或 `auth_sessions`（MySQL）表、唯一索引和普通索引均创建成功。
+5. 再发布新的 API 程序。
+
+新服务端登录成功后会返回 `accessToken` 和 `accessTokenExpiresAtUtc`。数据库只保存 token 的 SHA-256 摘要；注销或过期后会话不可继续使用。
+
+回滚时先停止新 API，保留现有 `USERS` 数据，然后删除新增会话表（确认没有其他程序使用后执行）：
+
+```sql
+-- 达梦
+DROP TABLE CAD_SW_LIBRARY.AUTH_SESSIONS;
+DROP SEQUENCE CAD_SW_LIBRARY.AUTH_SESSIONS_SEQ;
+
+-- MySQL
+DROP TABLE auth_sessions;
+```
+
 ## 3. 启动端口
 
 生产配置默认监听：
@@ -102,6 +132,20 @@ Invoke-WebRequest http://服务器地址:10010/api/departments
 ```
 
 只有健康检查和部门接口均成功后，客户端才应测试登录。客户端的 `DatabasePort=5236` 不会替代服务器端 DM 连接配置。
+
+登录后可使用以下请求验证服务端会话表和 token 流程：
+
+```powershell
+$login = Invoke-RestMethod -Uri http://服务器地址:10010/api/auth/login -Method Post -ContentType 'application/json' -Body '{"username":"测试账号","password":"测试密码","clientPlatform":"CAD"}'
+$session = Invoke-RestMethod -Uri http://服务器地址:10010/api/auth/validate-session -Method Post -ContentType 'application/json' -Body (@{ accessToken = $login.accessToken } | ConvertTo-Json)
+$session
+```
+
+验证成功后再测试注销：
+
+```powershell
+Invoke-RestMethod -Uri http://服务器地址:10010/api/auth/logout -Method Post -ContentType 'application/json' -Body (@{ accessToken = $login.accessToken } | ConvertTo-Json)
+```
 
 再测试系统配置：
 

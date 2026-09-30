@@ -481,9 +481,9 @@
                                                                 Header="工艺表格" Margin="0,5,0,0">
                                                                 <WrapPanel x:Name="工艺表格按钮面板" Orientation="Horizontal" Height="55">
                                                                     <Button x:Name="生成管道表"                                                                         
-                                                                            Width="90"
+                                                                            Width="95"
                                                                             Height="25"
-                                                                            Margin="5,1,1,1"
+                                                                            Margin="1,1,1,1"
                                                                             HorizontalAlignment="Left"
                                                                             VerticalAlignment="Top"
                                                                             Background="#FF0050A0"
@@ -493,9 +493,9 @@
                                                                             FontSize="12"
                                                                             Foreground="White" />
                                                                     <Button x:Name="生成设备表"
-                                                                         Width="90"
+                                                                         Width="95"
                                                                          Height="25"
-                                                                         Margin="5,1,1,1"
+                                                                         Margin="2,1,1,1"
                                                                          HorizontalAlignment="Left"
                                                                          VerticalAlignment="Top"
                                                                          Background="#FF0050A0"
@@ -505,7 +505,7 @@
                                                                          FontSize="12"
                                                                          Foreground="White" />
                                                                     <Button x:Name="插入管道表"
-                                                                         Width="90"
+                                                                         Width="95"
                                                                          Height="25"
                                                                          HorizontalAlignment="Center"
                                                                          VerticalAlignment="Center"
@@ -514,9 +514,9 @@
                                                                          Click="插入管道表_Click"
                                                                          Content="插入管道表"
                                                                          FontSize="12"
-                                                                         Foreground="White" Margin="5,1,1,1" />
+                                                                         Foreground="White" Margin="2,1,1,1" />
                                                                     <Button x:Name="导出表格"
-                                                                         Width="90"
+                                                                         Width="95"
                                                                          Height="25"
                                                                          HorizontalAlignment="Center"
                                                                          VerticalAlignment="Top"
@@ -525,9 +525,9 @@
                                                                          Click="导出表格_Click"
                                                                          Content="导出表格"
                                                                          FontSize="12"
-                                                                         Foreground="White" Margin="5,1,1,1" />
+                                                                         Foreground="White" Margin="1,1,1,1" />
                                                                     <Button x:Name="表格同步"
-                                                                         Width="90"
+                                                                         Width="95"
                                                                          Height="25"
                                                                          HorizontalAlignment="Center"
                                                                          VerticalAlignment="Center"
@@ -536,9 +536,9 @@
                                                                          Click="表格同步_Click"
                                                                          Content="表格同步"
                                                                          FontSize="12"
-                                                                         Foreground="White" Margin="5,1,1,1" />
+                                                                         Foreground="White" Margin="2,1,1,1" />
                                                                     <Button x:Name="加载Excel表"
-                                                                         Width="90"
+                                                                         Width="95"
                                                                          Height="25"
                                                                          HorizontalAlignment="Center"
                                                                          VerticalAlignment="Center"
@@ -547,7 +547,7 @@
                                                                          Click="加载Excel表_Click"
                                                                          Content="加载Excel表"
                                                                          FontSize="12"
-                                                                         Foreground="White" Margin="5,1,1,1" />
+                                                                         Foreground="White" Margin="2,1,1,1" />
                                                                 </WrapPanel>
                                                             </GroupBox>
                                                         </Grid>
@@ -562,9 +562,9 @@
                                                                 FontFamily="Microsoft YaHei UI"
                                                                 Header="工艺绘制">
                                                                 <WrapPanel VerticalAlignment="Center">
-                                                                    <Button Width="90"
+                                                                    <Button Width="95"
                                                                         Height="25"
-                                                                        Margin="5,1,1,1"
+                                                                        Margin="1,1,1,1"
                                                                         HorizontalAlignment="Left"
                                                                         Background="#FF0050A0"
                                                                         BorderBrush="#FFC2C6CE"
@@ -573,9 +573,9 @@
                                                                         FontSize="12"
                                                                         Foreground="White" VerticalAlignment="Center" VerticalContentAlignment="Center" />
                                                                     <Button x:Name="绘制出口管道"
-                                                                        Width="90"
+                                                                        Width="95"
                                                                         Height="25"
-                                                                        Margin="5,1,1,1"
+                                                                        Margin="2,1,1,1"
                                                                         HorizontalAlignment="Left"
                                                                         VerticalAlignment="Center"
                                                                         Background="#FF0050A0"
@@ -583,11 +583,12 @@
                                                                         Click="绘制出口管道_Click"
                                                                         Content="绘制出口管道"
                                                                         FontSize="12"
-                                                                        Foreground="White" VerticalContentAlignment="Center" />
+                                                                        Foreground="White"
+                                                                            VerticalContentAlignment="Center" />
                                                                     <Button x:Name="管道修改"
-                                                                        Width="90"
+                                                                        Width="95"
                                                                         Height="25"
-                                                                        Margin="5,1,1,1"
+                                                                        Margin="2,1,1,1"
                                                                         HorizontalAlignment="Center"
                                                                         VerticalAlignment="Center"
                                                                         Background="#FF0050A0"

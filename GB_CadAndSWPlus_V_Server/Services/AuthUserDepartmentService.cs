@@ -9,6 +9,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Services;
 
 public sealed class AuthUserDepartmentService
 {
+    private static readonly TimeSpan SessionLifetime = TimeSpan.FromHours(12);
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthUserDepartmentService> _logger;
 
@@ -16,6 +17,11 @@ public sealed class AuthUserDepartmentService
     {
         _configuration = configuration;
         _logger = logger;
+    }
+
+    private sealed class SessionUser : UserDto
+    {
+        public DateTime ExpiresAtUtc { get; init; }
     }
 
     public async Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken)
@@ -27,7 +33,68 @@ public sealed class AuthUserDepartmentService
         if (user == null || !user.IsActive || !VerifyPassword(request.Password, user.Salt, user.PasswordHash))
             return FailureLogin("用户不存在或密码错误。");
 
-        return new LoginResponse { Success = true, Message = "登录成功", User = ToUserDto(user) };
+        string accessToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+        DateTime expiresAtUtc = DateTime.UtcNow.Add(SessionLifetime);
+        await CreateSessionAsync(user.Id, accessToken, request.ClientPlatform, expiresAtUtc, cancellationToken).ConfigureAwait(false);
+
+        return new LoginResponse
+        {
+            Success = true,
+            Message = "登录成功",
+            User = ToUserDto(user),
+            AccessToken = accessToken,
+            AccessTokenExpiresAtUtc = expiresAtUtc
+        };
+    }
+
+    public async Task<SessionResponse> ValidateSessionAsync(string accessToken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return FailureSession("会话令牌不能为空。");
+
+        string tokenHash = ComputeTokenHash(accessToken);
+        string databaseType = GetDatabaseType();
+        string sessions = databaseType == "DM" ? $"{GetSchemaName()}.AUTH_SESSIONS" : "auth_sessions";
+        string users = databaseType == "DM" ? $"{GetSchemaName()}.USERS" : "users";
+        string p = databaseType == "DM" ? ":" : "@";
+        string now = databaseType == "DM" ? "CURRENT_TIMESTAMP" : "UTC_TIMESTAMP()";
+        string sql = $@"SELECT u.ID AS Id, u.USERNAME AS Username, COALESCE(u.REAL_NAME, u.USERNAME) AS RealName,
+                COALESCE(u.REAL_NAME, u.USERNAME) AS DisplayName, COALESCE(u.REAL_NAME, u.USERNAME) AS FullName,
+                COALESCE(u.GENDER, '') AS Gender, COALESCE(u.EMAIL, '') AS Email, COALESCE(u.PHONE, '') AS Phone,
+                COALESCE(u.ROLE, '') AS Role, COALESCE(u.DEPARTMENT_NAME, '') AS DepartmentName,
+                u.DEPARTMENT_ID AS DepartmentId, COALESCE(u.IS_ACTIVE, 1) AS IsActive,
+                s.EXPIRES_AT AS ExpiresAtUtc
+                FROM {sessions} s INNER JOIN {users} u ON u.ID = s.USER_ID
+                WHERE s.TOKEN_HASH={p}TokenHash AND s.REVOKED_AT IS NULL AND s.EXPIRES_AT > {now} AND u.IS_ACTIVE=1";
+        SessionUser? session = await QuerySingleAsync<SessionUser>(sql, new { TokenHash = tokenHash }, cancellationToken).ConfigureAwait(false);
+        if (session == null)
+            return FailureSession("登录会话已失效，请重新登录。");
+
+        await ExecuteAsync($"UPDATE {sessions} SET LAST_SEEN_AT={now} WHERE TOKEN_HASH={p}TokenHash", new { TokenHash = tokenHash }, cancellationToken).ConfigureAwait(false);
+        return new SessionResponse { Success = true, Message = "会话有效。", User = session, ExpiresAtUtc = session.ExpiresAtUtc };
+    }
+
+    public async Task<bool> RevokeSessionAsync(string accessToken, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return false;
+        string sessions = GetDatabaseType() == "DM" ? $"{GetSchemaName()}.AUTH_SESSIONS" : "auth_sessions";
+        string p = GetDatabaseType() == "DM" ? ":" : "@";
+        int rows = await ExecuteAsync($"UPDATE {sessions} SET REVOKED_AT={(GetDatabaseType() == "DM" ? "CURRENT_TIMESTAMP" : "UTC_TIMESTAMP()")} WHERE TOKEN_HASH={p}TokenHash AND REVOKED_AT IS NULL", new { TokenHash = ComputeTokenHash(accessToken) }, cancellationToken).ConfigureAwait(false);
+        return rows > 0;
+    }
+
+    private async Task CreateSessionAsync(int userId, string accessToken, string clientPlatform, DateTime expiresAtUtc, CancellationToken cancellationToken)
+    {
+        string databaseType = GetDatabaseType();
+        string sessions = databaseType == "DM" ? $"{GetSchemaName()}.AUTH_SESSIONS" : "auth_sessions";
+        string p = databaseType == "DM" ? ":" : "@";
+        string now = databaseType == "DM" ? "CURRENT_TIMESTAMP" : "UTC_TIMESTAMP()";
+        string id = databaseType == "DM" ? $"{GetSchemaName()}.AUTH_SESSIONS_SEQ.NEXTVAL" : "NULL";
+        string sql = databaseType == "DM"
+            ? $"INSERT INTO {sessions} (ID, USER_ID, TOKEN_HASH, CLIENT_PLATFORM, CREATED_AT, EXPIRES_AT, LAST_SEEN_AT) VALUES ({id}, {p}UserId, {p}TokenHash, {p}ClientPlatform, {now}, {p}ExpiresAtUtc, {now})"
+            : $"INSERT INTO {sessions} (USER_ID, TOKEN_HASH, CLIENT_PLATFORM, CREATED_AT, EXPIRES_AT, LAST_SEEN_AT) VALUES ({p}UserId, {p}TokenHash, {p}ClientPlatform, {now}, {p}ExpiresAtUtc, {now})";
+        await ExecuteAsync(sql, new { UserId = userId, TokenHash = ComputeTokenHash(accessToken), ClientPlatform = string.IsNullOrWhiteSpace(clientPlatform) ? "Unknown" : clientPlatform.Trim(), ExpiresAtUtc = expiresAtUtc }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<MutationResponse> ResetPasswordAsync(ResetPasswordRequest request, CancellationToken cancellationToken)
@@ -319,7 +386,7 @@ public sealed class AuthUserDepartmentService
     {
         string table = GetDatabaseType() == "DM" ? $"{GetSchemaName()}.USERS" : "users";
         string p = GetDatabaseType() == "DM" ? ":" : "@";
-        return await QuerySingleAsync<UserSecret>($"SELECT ID AS Id, USERNAME AS Username, PASSWORD_HASH AS PasswordHash, SALT AS Salt, REAL_NAME AS RealName, GENDER AS Gender, EMAIL AS Email, PHONE AS Phone, ROLE AS Role, DEPARTMENT_NAME AS DepartmentName, IS_ACTIVE AS IsActive FROM {table} WHERE UPPER(USERNAME)=UPPER({p}Username)", new { Username = username }, cancellationToken).ConfigureAwait(false);
+        return await QuerySingleAsync<UserSecret>($"SELECT ID AS Id, USERNAME AS Username, PASSWORD_HASH AS PasswordHash, SALT AS Salt, REAL_NAME AS RealName, GENDER AS Gender, EMAIL AS Email, PHONE AS Phone, ROLE AS Role, DEPARTMENT_ID AS DepartmentId, DEPARTMENT_NAME AS DepartmentName, IS_ACTIVE AS IsActive FROM {table} WHERE UPPER(USERNAME)=UPPER({p}Username)", new { Username = username }, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<string> QueryDepartmentNameAsync(int id, CancellationToken cancellationToken)
@@ -342,11 +409,17 @@ public sealed class AuthUserDepartmentService
     }
 
     private static LoginResponse FailureLogin(string message) => new() { Success = false, Message = message };
+    private static SessionResponse FailureSession(string message) => new() { Success = false, Message = message };
     private static MutationResponse Failure(string message) => new() { Success = false, Message = message };
     private static UserDto ToUserDto(UserSecret user) => user;
     private static string GenerateSalt() { byte[] bytes = new byte[32]; RandomNumberGenerator.Fill(bytes); return Convert.ToBase64String(bytes); }
     private static string ComputeHash(string password, string salt) { using var sha = SHA256.Create(); return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(password + salt))); }
     private static bool VerifyPassword(string password, string salt, string hash) => string.Equals(ComputeHash(password, salt), hash, StringComparison.OrdinalIgnoreCase);
+    private static string ComputeTokenHash(string token)
+    {
+        using SHA256 sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+    }
 
     private async Task<List<T>> QueryAsync<T>(string sql, object parameters, CancellationToken token)
     {

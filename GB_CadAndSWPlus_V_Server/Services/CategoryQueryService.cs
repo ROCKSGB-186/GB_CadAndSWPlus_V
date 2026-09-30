@@ -142,6 +142,9 @@ public sealed class CategoryQueryService
         List<CategoryDto> categories,
         List<SubcategoryDto> subcategories)
     {
+        // 数据库无记录时返回空数组而不是 null，保证 CAD 和 SolidWorks 客户端可直接绑定。
+        categories ??= new List<CategoryDto>();
+        subcategories ??= new List<SubcategoryDto>();
         return new CategoryTreeResponse
         {
             Success = true,

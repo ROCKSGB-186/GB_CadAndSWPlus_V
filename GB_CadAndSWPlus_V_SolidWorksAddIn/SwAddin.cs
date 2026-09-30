@@ -1,7 +1,12 @@
 ﻿using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swpublished;
-using GB_CadAndSWPlus_V.SolidWorksAddIn.Views;
+using GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages;
+using GB_CadAndSWPlus_V.SolidWorksAddIn.Configuration;
+using GB_CadAndSWPlus_V.SolidWorksAddIn.Services;
+using GB_CadAndSWPlus_V.Shared;
+using GB_CadAndSWPlus_V.Shared.Models;
+using GB_CadAndSWPlus_V.Shared.Services;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -41,6 +46,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         private ICommandManager? _commandManager;
         private ICommandGroup? _commandGroup;
         private readonly List<Window> _openWindows = new List<Window>();
+        private SwUserSession _userSession = new SwUserSession();
 
         private const int CommandGroupId = 2022;
 
@@ -68,6 +74,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 }
 
                 _cookie = Cookie;
+                _userSession = SwUserSession.Load();
                 // 将当前插件对象回传给 SolidWorks。后续 CommandManager 的回调方法
                 // 会根据这里登记的对象，通过方法名反射调用 ShowPipelineWindow 等方法。
                 _solidWorks.SetAddinCallbackInfo(0, this, _cookie);
@@ -100,6 +107,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
             _commandManager = null;
             _solidWorks = null;
             _cookie = 0;
+            _userSession = new SwUserSession();
             return true;
         }
 
@@ -169,29 +177,101 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 
         public void ShowPipelineWindow()
         {
+            if (!EnsureSignedIn())
+            {
+                return;
+            }
+
             ShowOwnedWindow(new PipelineWindow(new IntPtr(GetSolidWorksWindowHandle())));
         }
 
         public void ShowFlangeWindow()
         {
+            if (!EnsureSignedIn())
+            {
+                return;
+            }
+
             ShowOwnedWindow(new FlangeWindow(new IntPtr(GetSolidWorksWindowHandle())));
         }
 
         public void ShowRightPanel()
         {
+            if (!EnsureSignedIn())
+            {
+                return;
+            }
+
             var window = new Window
             {
                 Title = AddInTitle,
-                Width = 320,
-                Height = 700,
+                Width = 360,
+                Height = 720,
                 ShowInTaskbar = false,
-                Content = new RightWindows
-                {
-                    Sw = _solidWorks
-                }
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                // 页面面板使用统一的 Page + Frame 导航结构；
+                // 管道、法兰页面共享同一个 SolidWorks 应用对象。
+                Content = new AddInMainPage(_solidWorks, _userSession)
             };
 
             ShowOwnedWindow(window);
+        }
+
+        private bool EnsureSignedIn()
+        {
+            if (_userSession.IsSignedIn)
+            {
+                return true;
+            }
+
+            if (_solidWorks == null)
+            {
+                return false;
+            }
+
+            var loginService = new UnifiedSwLoginService(new AuthService(), _userSession);
+            var sessionStore = new SharedLoginSessionStore();
+            try
+            {
+                SharedLoginSession sharedSession = sessionStore.Load();
+                if (!string.IsNullOrWhiteSpace(sharedSession.ServerHost) &&
+                    !string.IsNullOrWhiteSpace(sharedSession.Username) &&
+                    !string.IsNullOrWhiteSpace(sharedSession.EncryptedPassword))
+                {
+                    UnifiedLoginResult autoLogin = loginService
+                        .LoginWithSharedSessionAsync(sharedSession)
+                        .GetAwaiter()
+                        .GetResult();
+                    if (autoLogin?.Success == true)
+                        return true;
+
+                    sessionStore.Clear();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("共享 SolidWorks 会话自动登录失败：" + ex.Message);
+            }
+
+            var loginWindow = new UnifiedLoginWindow(
+                UnifiedLoginPlatform.SolidWorks,
+                loginService,
+                sessionStore);
+            try
+            {
+                loginWindow.Owner = null;
+                bool? result = loginWindow.ShowDialog();
+                if (result == true && loginWindow.LoginResult != null)
+                {
+                    return true;
+                }
+            }
+            finally
+            {
+                loginWindow.Close();
+            }
+
+            return false;
         }
 
         private int GetSolidWorksWindowHandle()

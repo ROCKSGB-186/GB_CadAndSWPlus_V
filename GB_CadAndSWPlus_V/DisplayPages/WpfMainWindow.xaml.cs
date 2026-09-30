@@ -1542,7 +1542,7 @@ namespace GB_CadAndSWPlus_V
             {
                 Content = caption,                           // 按钮上显示的文字
                 Width = 95,                                  // 固定宽度
-                Height = 22,                                 // 固定高度
+                Height = 25,                                 // 固定高度
                 Margin = new Thickness(0, 0, 5, 0),          // 右边距5像素，实现水平间隔
                 HorizontalAlignment = HorizontalAlignment.Left,   // 水平左对齐
                 VerticalAlignment = System.Windows.VerticalAlignment.Top, // 垂直顶对齐（完全限定名避免歧义）
@@ -2036,7 +2036,7 @@ namespace GB_CadAndSWPlus_V
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(5),
                 Margin = new Thickness(0, 2, 0, 2),
-                Width = 300,
+                Width = 305,
                 Background = new SolidColorBrush(backgroundColor),
                 HorizontalAlignment = HorizontalAlignment.Left
             };

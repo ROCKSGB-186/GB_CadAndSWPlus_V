@@ -71,6 +71,10 @@ namespace GB_CadAndSWPlus_V.Helpers
 
                     // 初始化DTO、文件主信息对象、JSON属性字典
                     dto = new ImportEntityDto();
+                    dto.PidInstanceId = CreatePidInstanceId();
+                    dto.DrawingId = CreateDrawingId(doc);
+                    dto.SourceHandle = entity.Handle.ToString();
+                    dto.ObjectType = ResolveObjectType(entity);
                     var fs = dto.FileStorage;
                     var attrs = dto.AttributesJson;
 
@@ -118,6 +122,10 @@ namespace GB_CadAndSWPlus_V.Helpers
                     AddTextAttr("CreatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                     AddTextAttr("UpdatedAt", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
                     AddTextAttr("SourceDrawing", doc.Name);
+                    AddTextAttr("PidInstanceId", dto.PidInstanceId);
+                    AddTextAttr("DrawingId", dto.DrawingId);
+                    AddTextAttr("SourceHandle", dto.SourceHandle);
+                    AddTextAttr("ObjectType", dto.ObjectType);
 
                     // 如果当前实体是块参照，则提取块相关信息
                     if (entity is BlockReference br)
@@ -377,6 +385,29 @@ namespace GB_CadAndSWPlus_V.Helpers
 
             // 返回最终DTO
             return dto;
+        }
+
+        private static string CreatePidInstanceId()
+        {
+            return "PID-" + Guid.NewGuid().ToString("N").ToUpperInvariant();
+        }
+
+        private static string CreateDrawingId(Document document)
+        {
+            string fileName = string.IsNullOrWhiteSpace(document.Name)
+                ? "UNSAVED"
+                : Path.GetFileNameWithoutExtension(document.Name);
+            return fileName + "-" + document.Database.FingerprintGuid.ToString().ToUpperInvariant();
+        }
+
+        private static string ResolveObjectType(Entity entity)
+        {
+            if (entity is BlockReference)
+            {
+                return "CadBlock";
+            }
+
+            return entity.GetType().Name;
         }
 
         /// <summary>

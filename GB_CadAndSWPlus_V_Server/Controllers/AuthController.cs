@@ -36,6 +36,16 @@ public sealed class AuthController : ControllerBase
                 message = "数据库服务暂时不可用，请稍后重试。"
             });
         }
+        catch (Exception ex)
+        {
+            // MySQL 和其他数据库异常也统一转换为安全的 503 响应，避免客户端收到无上下文的 500。
+            _logger.LogError(ex, "登录接口执行失败。用户名={Username}", request?.Username);
+            return StatusCode(503, new
+            {
+                success = false,
+                message = "认证服务或数据库暂时不可用，请检查服务器配置和数据库状态。"
+            });
+        }
     }
 
     [HttpPost("register")]
@@ -45,4 +55,12 @@ public sealed class AuthController : ControllerBase
     [HttpPost("reset-password")]
     public async Task<ActionResult<MutationResponse>> ResetPasswordAsync([FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
         => Ok(await _service.ResetPasswordAsync(request, cancellationToken).ConfigureAwait(false));
+
+    [HttpPost("validate-session")]
+    public async Task<ActionResult<SessionResponse>> ValidateSessionAsync([FromBody] ValidateSessionRequest request, CancellationToken cancellationToken)
+        => Ok(await _service.ValidateSessionAsync(request.AccessToken, cancellationToken).ConfigureAwait(false));
+
+    [HttpPost("logout")]
+    public async Task<IActionResult> LogoutAsync([FromBody] ValidateSessionRequest request, CancellationToken cancellationToken)
+        => Ok(new { success = await _service.RevokeSessionAsync(request.AccessToken, cancellationToken).ConfigureAwait(false) });
 }

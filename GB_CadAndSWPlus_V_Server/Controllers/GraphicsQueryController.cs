@@ -13,15 +13,47 @@ public sealed class GraphicsQueryController : ControllerBase
     private readonly GraphicQueryService _graphicQueryService;
     private readonly GraphicDetailsService _graphicDetailsService;
     private readonly ILogger<GraphicsQueryController> _logger;
+    private readonly GraphicFileDownloadService _graphicFileDownloadService;
 
     public GraphicsQueryController(
         GraphicQueryService graphicQueryService,
         GraphicDetailsService graphicDetailsService,
+        GraphicFileDownloadService graphicFileDownloadService,
         ILogger<GraphicsQueryController> logger)
     {
         _graphicQueryService = graphicQueryService ?? throw new ArgumentNullException(nameof(graphicQueryService));
         _graphicDetailsService = graphicDetailsService ?? throw new ArgumentNullException(nameof(graphicDetailsService));
+        _graphicFileDownloadService = graphicFileDownloadService ?? throw new ArgumentNullException(nameof(graphicFileDownloadService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    /// <summary>
+    /// 受控下载图元文件；服务器不会向客户端暴露物理存储路径。
+    /// </summary>
+    [HttpGet("{id:int}/file")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DownloadFileAsync(int id, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // 第一步：由服务器读取图元元数据并校验文件路径。
+            GraphicFileDownloadResult? result = await _graphicFileDownloadService.OpenAsync(id, cancellationToken).ConfigureAwait(false);
+            if (result == null)
+                return NotFound(new { success = false, message = "图元文件不存在或已删除。" });
+
+            // 第二步：以 HTTP 文件响应返回内容，客户端不接触数据库和物理路径。
+            return File(result.Content, result.ContentType, result.FileName, enableRangeProcessing: true);
+        }
+        catch (ArgumentOutOfRangeException ex)
+        {
+            return BadRequest(new { success = false, message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "下载图元文件失败。GraphicId={GraphicId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { success = false, message = "图元文件下载失败，请查看服务器日志。" });
+        }
     }
 
     [HttpGet("{id:int}/details")]

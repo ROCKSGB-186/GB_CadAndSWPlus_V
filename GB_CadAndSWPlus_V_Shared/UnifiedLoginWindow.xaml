@@ -1,0 +1,213 @@
+<Window x:Class="GB_CadAndSWPlus_V.Shared.UnifiedLoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="748"
+        Height="540"
+        MinWidth="760"
+        MinHeight="540"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Background="#F4F7FB"
+        FontFamily="Microsoft YaHei UI"
+        Title="统一登录">
+    <Window.Resources>
+        <Style x:Key="LoginTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="12,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="#D6DFEA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style x:Key="LoginPasswordBoxStyle" TargetType="PasswordBox">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="12,0,42,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="#D6DFEA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style x:Key="LoginComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="#D6DFEA" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="White" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="24,0" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="#1677C8" />
+            <Setter Property="BorderBrush" Value="#1677C8" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+
+        <!-- 登录页滚动条沿用 CAD 主 WPF 页面的窄型样式。 -->
+        <Style x:Key="LoginScrollBarThumbStyle" TargetType="Thumb">
+            <Setter Property="Background" Value="#8C8C8C" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="2"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="LoginScrollBarStyle" TargetType="ScrollBar">
+            <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
+            <Setter Property="Foreground" Value="#8C8C8C" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Width" Value="8" />
+            <Setter Property="MinWidth" Value="8" />
+            <Setter Property="MaxWidth" Value="8" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="GridRoot"
+                              Background="{TemplateBinding Background}"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch">
+                            <Track x:Name="PART_Track"
+                                   Focusable="False"
+                                   IsDirectionReversed="True">
+                                <Track.Thumb>
+                                    <Thumb Background="{TemplateBinding Foreground}"
+                                           Style="{StaticResource LoginScrollBarThumbStyle}" />
+                                </Track.Thumb>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageDownCommand" Focusable="False" Opacity="0" />
+                                </Track.IncreaseRepeatButton>
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="ScrollBar.PageUpCommand" Focusable="False" Opacity="0" />
+                                </Track.DecreaseRepeatButton>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="PART_Track" Property="Visibility" Value="Collapsed" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="18" Background="White" BorderBrush="#DCE5EF" BorderThickness="1" CornerRadius="8">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="235" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" CornerRadius="8,0,0,8">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#0B4F88" Offset="0" />
+                        <GradientStop Color="#1677C8" Offset="1" />
+                    </LinearGradientBrush>
+                </Border.Background>
+                <Grid Margin="24">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Orientation="Horizontal">
+                        <Image Width="42" Height="42" Stretch="Uniform" Source="/GB_CadAndSWPlus_V_Shared;component/Resources/沈阳铝镁院LOGO_NEW.png" />
+                        <StackPanel Margin="12,1,0,0">
+                            <TextBlock Text="沈阳铝镁研究院" Foreground="White" FontSize="19" FontWeight="Bold" />
+                            <TextBlock Text="统一账号中心" Foreground="#D6ECFF" FontSize="11" Margin="0,3,0,0" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                        <TextBlock Text="欢迎回来" Foreground="White" FontSize="24" FontWeight="Bold" />
+                        <TextBlock Text="一次登录，连接 CAD 与 SolidWorks" Foreground="#E2F2FF" FontSize="13" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        <Border Height="1" Background="#55FFFFFF" Margin="0,22,0,20" />
+                        <TextBlock Text="统一访问工程数据、图元属性和三维模型服务。" Foreground="#D6ECFF" FontSize="12" TextWrapping="Wrap" LineHeight="22" />
+                    </StackPanel>
+                    <TextBlock Grid.Row="2" Text="CAD  ·  SolidWorks  ·  工程协同" Foreground="#BFE3FF" FontSize="11" />
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1" Margin="30,24,30,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0">
+                    <TextBlock Text="SW\CAD辅助设计平台" Foreground="#1F2D3D" FontSize="22" FontWeight="Bold" />
+                    <TextBlock Foreground="#8090A2" FontSize="12" Margin="0,6,0,16" ><Run Text="使用统一账号访问 "/><Run Language="zh-cn" Text="SW\"/><Run Text="CAD 工程设计平台"/></TextBlock>
+                </StackPanel>
+
+                <ScrollViewer x:Name="登录窗口信息Scroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8">
+                    <ScrollViewer.Resources>
+                        <!-- 只作用于登录窗口右侧信息区，不改变 CAD 主页面或其他窗口。 -->
+                        <Style TargetType="ScrollBar" BasedOn="{StaticResource LoginScrollBarStyle}" />
+                    </ScrollViewer.Resources>
+                    <StackPanel>
+                        <TextBlock Text="服务器 IP / 主机名" Foreground="#526274" FontSize="12" Margin="0,0,0,6" Width="410" />
+                        <TextBox x:Name="ServerHostTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
+                        <TextBlock Text="API 服务端口" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
+                        <TextBox x:Name="ApiPortTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
+                        <TextBlock Text="用户名" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
+                        <TextBox x:Name="UsernameTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
+                        <TextBlock Text="密码" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
+                        <Grid Height="36">
+                            <PasswordBox x:Name="PasswordBox" Style="{StaticResource LoginPasswordBoxStyle}" Width="410" />
+                            <TextBox x:Name="PasswordVisibleTextBox" Style="{StaticResource LoginTextBoxStyle}" Padding="12,0,42,0" Visibility="Collapsed" />
+                            <Button x:Name="TogglePasswordButton" Width="38" Height="34" Margin="0,1,1,1" Padding="0" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Click="TogglePassword_Click" Content="👁" FontFamily="Segoe UI Symbol" FontSize="15" Foreground="#6B7C8F" ToolTip="显示密码" />
+                        </Grid>
+                        <Grid Margin="0,10,0,0">
+                            <CheckBox x:Name="RememberPasswordCheckBox" Content="保存密码" Foreground="#526274" VerticalAlignment="Center" Margin="10,0,10,0" Width="400" />
+                            <TextBlock HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="#8090A2" Text="统一身份认证" Margin="335,0,0,0" Width="74" />
+                        </Grid>
+                        <Border BorderBrush="#E1E8F0" BorderThickness="1" CornerRadius="5" Padding="14,10" Margin="0,12,0,4" Width="410">
+                            <StackPanel x:Name="CadSettingsGroupBox">
+                                <TextBlock Text="CAD 服务器配置" Foreground="#1F2D3D" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="110" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Margin="0,0,10,0">
+                                        <TextBlock Text="数据库类型" Foreground="#526274" FontSize="11" Margin="0,0,0,5" />
+                                        <ComboBox x:Name="DatabaseTypeComboBox" Style="{StaticResource LoginComboBoxStyle}">
+                                            <ComboBoxItem Content="DM" />
+                                            <ComboBoxItem Content="MYSQL" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1">
+                                        <TextBlock Text="数据库端口" Foreground="#526274" FontSize="11" Margin="0,0,0,5" />
+                                        <TextBox x:Name="DatabasePortTextBox" Style="{StaticResource LoginTextBoxStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <TextBlock x:Name="StatusTextBlock" Grid.Row="2" Foreground="#526274" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8" MinHeight="18" />
+                <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="TestConnectionButton" Content="测试连接" Height="38" MinWidth="96" Margin="0,0,8,0" Padding="16,0" Click="TestConnection_Click" />
+                    <Button x:Name="SwitchAccountButton" Content="切换账号" Height="38" MinWidth="96" Margin="0,0,8,0" Padding="16,0" Click="SwitchAccount_Click" />
+                    <Button x:Name="LoginButton" Content="登录" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Right" MinWidth="108" Click="Login_Click" IsDefault="True" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

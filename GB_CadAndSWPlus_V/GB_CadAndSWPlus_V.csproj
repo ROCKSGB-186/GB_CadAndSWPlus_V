@@ -12,9 +12,9 @@
 		<Platforms>AnyCPU;x64</Platforms>
 		<AssemblyName>$(MSBuildProjectName)</AssemblyName>
 		<ErrorReport>prompt</ErrorReport>
-                <AssemblyVersion>3.26.0925.161</AssemblyVersion>
-                <FileVersion>3.26.0925.161</FileVersion>
-                <Version>3.26.0925.161</Version>
+                <AssemblyVersion>3.26.0930.166</AssemblyVersion>
+                <FileVersion>3.26.0930.166</FileVersion>
+                <Version>3.26.0930.166</Version>
                 <PlatformTarget>x64</PlatformTarget>
                 <Authors>Guangbei</Authors>
                 <Company>Shenyang Beike Meizhi Technology Co.,Ltd</Company>
@@ -61,22 +61,30 @@
 	  <Compile Remove="packages\**" />
 		<!-- SolidWorks Add-in 是独立 net48 项目，不能被 AutoCAD 项目重复编译 -->
 		<Compile Remove="GB_CadAndSWPlus_V_SolidWorksAddIn\**" />
+		<Compile Remove="SwTools.Views\**" />
 	  <!-- 排除服务端工程目录，避免 net8 WebAPI 源码/obj 被 net48 主工程误编译 -->
 	  <EmbeddedResource Remove="FakesAssemblies\**" />
 	  <EmbeddedResource Remove="Fakes\**" />
 	  <EmbeddedResource Remove="packages\**" />
 		<EmbeddedResource Remove="GB_CadAndSWPlus_V_SolidWorksAddIn\**" />
+		<EmbeddedResource Remove="SwTools.Views\**" />
 	  <!-- 同步排除服务端目录下的资源项，避免被主工程作为资源收集 -->
 	  <None Remove="FakesAssemblies\**" />
 	  <None Remove="Fakes\**" />
 	  <None Remove="packages\**" />
 		<None Remove="GB_CadAndSWPlus_V_SolidWorksAddIn\**" />
+		<None Remove="SwTools.Views\**" />
 	  <!-- 同步排除服务端目录下的 None 文件（如 appsettings/json/http） -->
 	  <Page Remove="FakesAssemblies\**" />
 	  <Page Remove="Fakes\**" />
 	  <Page Remove="packages\**" />
 		<Page Remove="GB_CadAndSWPlus_V_SolidWorksAddIn\**" />
+		<Page Remove="SwTools.Views\**" />
 	  <!-- 同步排除服务端目录下可能出现的 XAML 页面项 -->
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\GB_CadAndSWPlus_V_Shared\GB_CadAndSWPlus_V_Shared.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -267,6 +275,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <Resource Include="DisplayPages\Icons\seting.png" />
+	  <Resource Include="DisplayPages\Icons\沈阳铝镁院LOGO_NEW.png" />
+	  <Resource Include="DisplayPages\Icons\管道.png" />
 	  <Resource Include="Resources\下.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </Resource>
@@ -604,7 +615,6 @@
 	    <CopyToOutputDirectory>Always</CopyToOutputDirectory>
 	  </Content>
 	  <None Include=".github\copilot-instructions.md" />
-	  <None Include="SwTools.Views\Sw_Tools_AllWindows.Views.csproj" />
 	  <Resource Include="Resources\左.png">
 	    <CopyToOutputDirectory>Never</CopyToOutputDirectory>
 	  </Resource>

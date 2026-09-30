@@ -86,12 +86,18 @@ builder.Services.AddScoped<AuthUserDepartmentService>();
 // 图形文件查询服务：文件元数据统一由服务器读取。
 builder.Services.AddScoped<GraphicQueryService>();
 builder.Services.AddScoped<GraphicDetailsService>();
+// 注册图元文件受控下载服务，客户端不直接访问数据库或服务器物理路径。
+builder.Services.AddScoped<GraphicFileDownloadService>();
 builder.Services.AddScoped<GraphicCommandService>();
 
 // 图层字典表初始化服务：DM 连接只在服务器端使用，客户端通过 HTTP 调用。
 builder.Services.AddScoped<LayerDictionaryInitializationService>();
 builder.Services.AddScoped<LayerDictionaryService>();
 builder.Services.AddScoped<SystemConfigService>();
+builder.Services.AddScoped<SwInstanceService>();
+
+// 注册 SolidWorks 平台模板查询服务；模板附件元数据统一由服务器读取。
+builder.Services.AddScoped<SwPlatformTemplateService>();
 
 // 注册规范查询服务；规范数据库仍由服务器统一访问，客户端只通过 HTTP 查询。
 builder.Services.AddScoped<StandardQueryService>();

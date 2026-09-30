@@ -37,11 +37,16 @@
     <Reference Include="PresentationFramework" />
     <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="WindowsFormsIntegration" />
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="Views\Icons\*.png" />
+    <ProjectReference Include="..\GB_CadAndSWPlus_V_Shared\GB_CadAndSWPlus_V_Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="DisplayPages\Icons\*.png" />
   </ItemGroup>
 </Project>

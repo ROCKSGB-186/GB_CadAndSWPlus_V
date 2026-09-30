@@ -4,6 +4,7 @@ public sealed class LoginRequest
 {
     public string Username { get; init; } = string.Empty;
     public string Password { get; init; } = string.Empty;
+    public string ClientPlatform { get; init; } = "Unknown";
 }
 
 public sealed class ResetPasswordRequest
@@ -23,6 +24,21 @@ public sealed class LoginResponse
     public bool Success { get; init; }
     public string Message { get; init; } = string.Empty;
     public UserDto? User { get; init; }
+    public string? AccessToken { get; init; }
+    public DateTime? AccessTokenExpiresAtUtc { get; init; }
+}
+
+public sealed class ValidateSessionRequest
+{
+    public string AccessToken { get; init; } = string.Empty;
+}
+
+public sealed class SessionResponse
+{
+    public bool Success { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public UserDto? User { get; init; }
+    public DateTime? ExpiresAtUtc { get; init; }
 }
 
 public sealed class RegisterUserRequest

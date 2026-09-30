@@ -78,7 +78,12 @@ public sealed class LocalStandardFileStorage : IStandardFileStorage
 
     private string GetSafeFullPath(string relativePath)
     {
-        string root = _configuration["Storage:StandardRoot"]?.Trim() ?? string.Empty;
+        // 第一步：优先读取规范附件专用目录；兼容旧配置中的 Storage:Root。
+        string root = (_configuration["Storage:StandardRoot"]
+            ?? _configuration["Storage:Root"]
+            ?? _configuration["StorageSettings:RootPath"]
+            ?? _configuration["UploadStorage:RootPath"]
+            ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(root))
         {
             root = Path.Combine(AppContext.BaseDirectory, "StandardFiles");

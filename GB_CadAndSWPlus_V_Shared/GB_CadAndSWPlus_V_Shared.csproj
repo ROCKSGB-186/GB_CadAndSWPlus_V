@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>GB_CadAndSWPlus_V.Shared</RootNamespace>
+    <AssemblyName>GB_CadAndSWPlus_V_Shared</AssemblyName>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Security" />
+    <Reference Include="System.Net.Http" />
+    <Resource Include="..\GB_CadAndSWPlus_V\DisplayPages\Icons\沈阳铝镁院LOGO_NEW.png" Link="Resources\沈阳铝镁院LOGO_NEW.png" />
+  </ItemGroup>
+</Project>
