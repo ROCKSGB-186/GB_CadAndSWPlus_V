@@ -40,7 +40,14 @@ if (string.IsNullOrWhiteSpace(commonConnectionString) && !string.IsNullOrWhiteSp
 }
 
 // 启动配置日志在构建阶段输出到标准日志；不记录连接字符串、密码或密钥。
-builder.Logging.AddConsole();
+builder.Logging.AddSimpleConsole(options =>
+{
+    // 控制台日志统一使用本地时间并显示毫秒，便于与客户端日志逐条对照。
+    options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
+    options.UseUtcTimestamp = false;
+    options.SingleLine = true;
+    options.IncludeScopes = false;
+});
 
 if (builder.Configuration.GetValue<bool>("Server:ForwardedHeadersEnabled"))
 {
@@ -173,18 +180,27 @@ string databaseSchema = (builder.Configuration["Database:Schema"] ?? "CAD_SW_LIB
 bool dmConnectionConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Database:ConnectionString"])
     || !string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DM"));
 startupLogger.LogInformation(
-    "服务器启动配置完成。Urls={ServerUrls}; ConfiguredPort={ConfiguredPort}; Environment={EnvironmentName}; " +
-    "SwaggerEnabled={SwaggerEnabled}; HttpsRedirection={HttpsRedirection}",
+    "服务器启动配置完成。监听地址={ServerUrls}；配置端口={ConfiguredPort}；运行环境={EnvironmentName}；" +
+    "接口文档={SwaggerEnabled}；HTTPS重定向={HttpsRedirection}",
     serverUrls,
     configuredPort,
     app.Environment.EnvironmentName,
     app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Server:EnableSwagger"),
     builder.Configuration.GetValue<bool>("Server:UseHttpsRedirection"));
 startupLogger.LogInformation(
-    "服务器数据库配置状态。DatabaseType={DatabaseType}; Schema={Schema}; DMConnectionConfigured={DMConnectionConfigured}",
+    "服务器数据库配置状态。数据库类型={DatabaseType}；数据库模式={Schema}；数据库连接已配置={DMConnectionConfigured}",
     databaseType,
     databaseSchema,
     dmConnectionConfigured);
+
+string storageRoot = (builder.Configuration["Storage:Root"]
+    ?? builder.Configuration["StorageSettings:RootPath"]
+    ?? builder.Configuration["UploadStorage:RootPath"]
+    ?? string.Empty).Trim();
+startupLogger.LogInformation(
+    "服务器图元存储配置。存储根目录={StorageRoot}；目录存在={StorageRootExists}",
+    storageRoot,
+    !string.IsNullOrWhiteSpace(storageRoot) && Directory.Exists(storageRoot));
 
 // 统一记录所有请求的开始、结束、状态码、耗时和异常；请求体仅记录脱敏摘要。
 if (builder.Configuration.GetValue<bool>("Server:ForwardedHeadersEnabled"))

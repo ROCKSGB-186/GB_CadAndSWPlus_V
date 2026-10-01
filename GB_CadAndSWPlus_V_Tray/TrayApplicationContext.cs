@@ -38,14 +38,20 @@ namespace GB_CadAndSWPlus_V.Tray
             var switchItem = new ToolStripMenuItem("切换账号");
             switchItem.Click += (sender, args) => ShowLoginWindow(true);
 
+            // “退出登录”清除认证信息并关闭托盘程序；连接配置仍保留。
+            var logoutItem = new ToolStripMenuItem("退出登录");
+            logoutItem.Click += (sender, args) => LogoutAndExit();
+
             // “退出托盘程序”菜单项
             var exitItem = new ToolStripMenuItem("退出托盘程序");
-            exitItem.Click += (sender, args) => ExitThread();
+            // CAD 或 SolidWorks 运行期间，所有退出入口都必须经过统一检查。
+            exitItem.Click += (sender, args) => RequestExit();
 
             // 构建托盘右键菜单
             var menu = new ContextMenuStrip();
             menu.Items.Add(_accountItem);
             menu.Items.Add(switchItem);
+            menu.Items.Add(logoutItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
 
@@ -63,6 +69,39 @@ namespace GB_CadAndSWPlus_V.Tray
 
             // 根据本地会话刷新菜单中的账号文本
             UpdateAccountText();
+        }
+
+        private void LogoutAndExit()
+        {
+            _sessionStore.ClearAuthentication();
+
+            // 退出登录后仍通过统一退出检查，确保 CAD/SolidWorks 运行时托盘继续驻留。
+            RequestExit(true);
+        }
+
+        /// <summary>
+        /// 请求退出托盘程序；CAD 或 SolidWorks 运行期间禁止退出。
+        /// </summary>
+        /// <param name="authenticationCleared">是否已经清除了登录认证信息。</param>
+        private void RequestExit(bool authenticationCleared = false)
+        {
+            // 客户端运行期间必须保留托盘，避免共享会话宿主和登录状态被意外终止。
+            if (TrayLauncher.IsCadOrSolidWorksRunning())
+            {
+                UpdateAccountText();
+                string message = authenticationCleared
+                    ? "已退出登录，但 CAD 或 SolidWorks 当前仍在运行，托盘程序不能退出。请先关闭 CAD 和 SolidWorks 后再退出托盘。"
+                    : "CAD 或 SolidWorks 当前仍在运行，托盘程序不能退出。请先关闭 CAD 和 SolidWorks 后再退出托盘。";
+                MessageBox.Show(
+                    message,
+                    "无法退出托盘",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+                return;
+            }
+
+            // 只有确认所有客户端均已关闭后，才真正结束托盘消息循环。
+            ExitThread();
         }
 
         /// <summary>

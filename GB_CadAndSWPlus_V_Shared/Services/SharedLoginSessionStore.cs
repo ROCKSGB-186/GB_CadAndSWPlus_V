@@ -1,6 +1,7 @@
 using GB_CadAndSWPlus_V.Shared.Models;
 using System;
 using System.IO;
+using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
@@ -33,8 +34,9 @@ namespace GB_CadAndSWPlus_V.Shared.Services
         {
             lock (SyncRoot)
             {
-                // 文件不存在时直接返回空会话
-                if (!File.Exists(SessionPath)) return new SharedLoginSession();
+                // 统一登录文件不存在时，兼容读取 CAD 旧登录页保存的配置文件。
+                if (!File.Exists(SessionPath))
+                    return LoadLegacyCadSession();
                 try
                 {
                     // 使用 DataContractJsonSerializer 反序列化 JSON 会话文件
@@ -42,12 +44,61 @@ namespace GB_CadAndSWPlus_V.Shared.Services
                     using (var stream = File.OpenRead(SessionPath))
                         return serializer.ReadObject(stream) as SharedLoginSession ?? new SharedLoginSession();
                 }
-                catch
+                catch (Exception)
                 {
-                    // 读取或反序列化失败时，返回空会话，避免影响主流程
-                    return new SharedLoginSession();
+                    // 统一文件损坏时尝试读取旧配置，避免已有登录配置丢失。
+                    return LoadLegacyCadSession();
                 }
             }
+        }
+
+        private static SharedLoginSession LoadLegacyCadSession()
+        {
+            string legacyPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GB_CADPLUS",
+                "login_config.json");
+            if (!File.Exists(legacyPath)) return new SharedLoginSession();
+
+            try
+            {
+                var legacySerializer = new DataContractJsonSerializer(typeof(LegacyCadLoginConfig));
+                LegacyCadLoginConfig legacy;
+                using (var stream = File.OpenRead(legacyPath))
+                    legacy = legacySerializer.ReadObject(stream) as LegacyCadLoginConfig;
+                if (legacy == null || string.IsNullOrWhiteSpace(legacy.ServerIP)) return new SharedLoginSession();
+
+                var session = new SharedLoginSession
+                {
+                    ServerHost = legacy.ServerIP.Trim(),
+                    ApiPort = ParsePort(legacy.ApiPort, 10010),
+                    DatabaseType = string.IsNullOrWhiteSpace(legacy.DatabaseType) ? "DM" : legacy.DatabaseType,
+                    DatabasePort = ParsePort(legacy.DataBaseserverPort, 5236),
+                    Username = legacy.Username?.Trim() ?? string.Empty,
+                    EncryptedPassword = legacy.SavePassword ? legacy.EncryptedPassword ?? string.Empty : string.Empty,
+                    UpdatedUtc = DateTime.UtcNow
+                };
+                return session;
+            }
+            catch
+            {
+                return new SharedLoginSession();
+            }
+        }
+
+        private static int ParsePort(string value, int fallback)
+            => int.TryParse(value, out int port) && port > 0 && port <= 65535 ? port : fallback;
+
+        [DataContract]
+        private sealed class LegacyCadLoginConfig
+        {
+            [DataMember(Name = "ServerIP")] public string ServerIP { get; set; }
+            [DataMember(Name = "DataBaseserverPort")] public string DataBaseserverPort { get; set; }
+            [DataMember(Name = "ApiPort")] public string ApiPort { get; set; }
+            [DataMember(Name = "Username")] public string Username { get; set; }
+            [DataMember(Name = "SavePassword")] public bool SavePassword { get; set; }
+            [DataMember(Name = "EncryptedPassword")] public string EncryptedPassword { get; set; }
+            [DataMember(Name = "DatabaseType")] public string DatabaseType { get; set; }
         }
 
         /// <summary>
@@ -120,7 +171,32 @@ namespace GB_CadAndSWPlus_V.Shared.Services
 
                 // 最终检查文件是否确实写入成功
                 if (!File.Exists(SessionPath)) throw new IOException("共享登录会话文件写入失败。");
+
+                // 同步写入旧 CAD 登录页使用的配置，确保两套入口打开时显示相同信息。
+                SaveLegacyCadSession(request, rememberPassword, session.EncryptedPassword);
             }
+        }
+
+        private static void SaveLegacyCadSession(UnifiedLoginRequest request, bool rememberPassword, string encryptedPassword)
+        {
+            string directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GB_CADPLUS");
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "login_config.json");
+            var legacy = new LegacyCadLoginConfig
+            {
+                ServerIP = request.ServerHost?.Trim() ?? string.Empty,
+                DataBaseserverPort = (request.DatabasePort ?? 5236).ToString(),
+                ApiPort = request.ApiPort.ToString(),
+                Username = request.Username?.Trim() ?? string.Empty,
+                SavePassword = rememberPassword,
+                EncryptedPassword = rememberPassword ? encryptedPassword : null,
+                DatabaseType = request.DatabaseType ?? "DM"
+            };
+            var serializer = new DataContractJsonSerializer(typeof(LegacyCadLoginConfig));
+            using (var stream = File.Create(path))
+                serializer.WriteObject(stream, legacy);
         }
 
         /// <summary>
@@ -178,6 +254,43 @@ namespace GB_CadAndSWPlus_V.Shared.Services
             {
                 if (File.Exists(SessionPath)) File.Delete(SessionPath);
             }
+        }
+
+        /// <summary>
+        /// 退出登录但保留服务器地址、端口、数据库类型和用户名。
+        /// </summary>
+        public void ClearAuthentication()
+        {
+            lock (SyncRoot)
+            {
+                SharedLoginSession session = Load();
+                if (string.IsNullOrWhiteSpace(session.ServerHost)) return;
+
+                session.EncryptedPassword = string.Empty;
+                session.DisplayName = string.Empty;
+                session.UserId = null;
+                session.DepartmentId = null;
+                session.DepartmentName = string.Empty;
+                session.AccessToken = string.Empty;
+                session.AccessTokenExpiresAtUtc = null;
+                session.UpdatedUtc = DateTime.UtcNow;
+                WriteSession(session);
+            }
+        }
+
+        private static void WriteSession(SharedLoginSession session)
+        {
+            string directory = Path.GetDirectoryName(SessionPath);
+            if (!string.IsNullOrWhiteSpace(directory)) Directory.CreateDirectory(directory);
+            string temporaryPath = SessionPath + ".tmp";
+            var serializer = new DataContractJsonSerializer(typeof(SharedLoginSession));
+            using (var stream = File.Create(temporaryPath)) serializer.WriteObject(stream, session);
+            if (File.Exists(SessionPath))
+            {
+                try { File.Replace(temporaryPath, SessionPath, null); }
+                catch (PlatformNotSupportedException) { File.Delete(SessionPath); File.Move(temporaryPath, SessionPath); }
+            }
+            else File.Move(temporaryPath, SessionPath);
         }
 
         /// <summary>

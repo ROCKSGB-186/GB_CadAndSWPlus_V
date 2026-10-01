@@ -423,8 +423,21 @@ public sealed class AuthUserDepartmentService
 
     private async Task<List<T>> QueryAsync<T>(string sql, object parameters, CancellationToken token)
     {
-        if (GetDatabaseType() == "DM") { await using var c = new DmConnection(GetConnectionString("DM")); await c.OpenAsync(token); return (await c.QueryAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token))).AsList(); }
-        await using var m = new MySqlConnection(GetConnectionString("MYSQL")); await m.OpenAsync(token); return (await m.QueryAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token))).AsList();
+        string databaseType = GetDatabaseType();
+        _logger.LogInformation("开始查询数据库。数据库类型={DatabaseType}；返回类型={ResultType}", databaseType, typeof(T).Name);
+        try
+        {
+            List<T> result;
+            if (databaseType == "DM") { await using var c = new DmConnection(GetConnectionString("DM")); await c.OpenAsync(token); result = (await c.QueryAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token))).AsList(); }
+            else { await using var m = new MySqlConnection(GetConnectionString("MYSQL")); await m.OpenAsync(token); result = (await m.QueryAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token))).AsList(); }
+            _logger.LogInformation("数据库查询完成。数据库类型={DatabaseType}；返回条数={Count}", databaseType, result.Count);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "数据库查询失败。数据库类型={DatabaseType}；返回类型={ResultType}", databaseType, typeof(T).Name);
+            throw;
+        }
     }
     private async Task<T?> QuerySingleAsync<T>(string sql, object parameters, CancellationToken token)
     {
@@ -438,8 +451,21 @@ public sealed class AuthUserDepartmentService
     }
     private async Task<int> ExecuteAsync(string sql, object parameters, CancellationToken token)
     {
-        if (GetDatabaseType() == "DM") { await using var c = new DmConnection(GetConnectionString("DM")); await c.OpenAsync(token); return await c.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: token)); }
-        await using var m = new MySqlConnection(GetConnectionString("MYSQL")); await m.OpenAsync(token); return await m.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: token));
+        string databaseType = GetDatabaseType();
+        _logger.LogInformation("开始执行数据库写入。数据库类型={DatabaseType}", databaseType);
+        try
+        {
+            int affected;
+            if (databaseType == "DM") { await using var c = new DmConnection(GetConnectionString("DM")); await c.OpenAsync(token); affected = await c.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: token)); }
+            else { await using var m = new MySqlConnection(GetConnectionString("MYSQL")); await m.OpenAsync(token); affected = await m.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: token)); }
+            _logger.LogInformation("数据库写入完成。数据库类型={DatabaseType}；影响行数={AffectedRows}", databaseType, affected);
+            return affected;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "数据库写入失败。数据库类型={DatabaseType}", databaseType);
+            throw;
+        }
     }
     private async Task<int> ExecuteInsertAsync(string sql, object parameters, CancellationToken token)
     {

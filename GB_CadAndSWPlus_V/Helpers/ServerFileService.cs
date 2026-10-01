@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using GB_CadAndSWPlus_V.FunctionalMethod; // 引入 FileStorage 等模型
@@ -58,8 +60,14 @@ namespace GB_CadAndSWPlus_V.Helpers
                 EnsureIsNotDirectory(localPath);
                 // 构建 URL 并下载
                 string url = BuildDownloadUrl(storageId, type);
-                var response = await _httpClient.GetAsync(url); // 可能抛出异常（网络问题、超时等）
-                response.EnsureSuccessStatusCode(); // 如果服务器返回错误状态码，会抛出异常
+                using var response = await _httpClient.GetAsync(url); // 可能抛出异常（网络问题、超时等）
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorBody = await response.Content.ReadAsStringAsync();
+                    string safeBody = errorBody.Length > 1000 ? errorBody.Substring(0, 1000) : errorBody;
+                    LogManager.Instance.LogError($"[ServerFileService] HTTP错误 URL={url}, Status={(int)response.StatusCode} {response.ReasonPhrase}, Response={safeBody}");
+                    response.EnsureSuccessStatusCode();
+                }
                 // 确保本地目录存在
                 string? dir = Path.GetDirectoryName(localPath);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
@@ -87,6 +95,17 @@ namespace GB_CadAndSWPlus_V.Helpers
         public static async Task<string?> EnsurePreviewCacheAsync(FileStorage fileStorage, string previewCacheDir)
         {
             if (fileStorage == null) return null;
+
+            foreach (string compatibleDir in GetCompatibleCacheDirectories(previewCacheDir, "PreviewCache"))
+            {
+                string compatibleBasePath = BuildCacheFilePath(fileStorage, compatibleDir, "_preview", "");
+                foreach (var ext in new[] { ".png", ".jpg", ".jpeg", ".gif", ".bmp" })
+                {
+                    string compatiblePath = compatibleBasePath + ext;
+                    if (File.Exists(compatiblePath) && new FileInfo(compatiblePath).Length > 0)
+                        return compatiblePath;
+                }
+            }
             
             // 2. 基于 FileHash 的最终路径
             string basePath = BuildCacheFilePath(fileStorage, previewCacheDir, "_preview", ""); // 不带扩展名先
@@ -130,6 +149,16 @@ namespace GB_CadAndSWPlus_V.Helpers
         public static async Task<string?> EnsureDwgCacheAsync(FileStorage fileStorage, string dwgCacheDir)
         {
             if (fileStorage == null) return null;
+
+            foreach (string compatibleDir in GetCompatibleCacheDirectories(dwgCacheDir, "DwgCache"))
+            {
+                string compatiblePath = BuildCacheFilePath(fileStorage, compatibleDir, "", ".dwg");
+                if (File.Exists(compatiblePath) && new FileInfo(compatiblePath).Length > 0)
+                {
+                    LogManager.Instance.LogInfo($"[DWG] 使用兼容目录缓存: {compatiblePath}, 文件名: {fileStorage.FileName}");
+                    return compatiblePath;
+                }
+            }
 
             // 2. 基于 FileHash 的最终路径（与预览逻辑一致）
             string finalPath = BuildCacheFilePath(fileStorage, dwgCacheDir, "", ".dwg");
@@ -267,6 +296,27 @@ namespace GB_CadAndSWPlus_V.Helpers
             LogManager.Instance.LogDebug($"[缓存路径] {fullPath} (服务器中文件名={file.FileName})");
             LogManager.Instance.LogDebug($"[预览缓存路径] {cacheDir} (文件名={fileName})(预览图片名={file.PreviewImageName})");
             return fullPath;
+        }
+
+        private static IEnumerable<string> GetCompatibleCacheDirectories(string configuredPath, string cacheName)
+        {
+            var paths = new List<string>();
+            AddCompatiblePath(paths, configuredPath);
+
+            string appDataPath = GetPath.AppDataPath;
+            AddCompatiblePath(paths, Path.Combine(appDataPath, cacheName));
+
+            string? configuredRoot = GetPath._cacheStoragePath;
+            if (!string.IsNullOrWhiteSpace(configuredRoot))
+                AddCompatiblePath(paths, Path.Combine(configuredRoot, cacheName));
+
+            return paths;
+        }
+
+        private static void AddCompatiblePath(ICollection<string> paths, string path)
+        {
+            if (!string.IsNullOrWhiteSpace(path) && !paths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                paths.Add(path);
         }
        
         #endregion

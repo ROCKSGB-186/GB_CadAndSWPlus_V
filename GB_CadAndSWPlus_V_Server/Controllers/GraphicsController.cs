@@ -597,9 +597,10 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
         #region 读取接口
 
         /// <summary>
-        /// 下载图元主文件：GET /api/graphics/{id}/file
+        /// 旧版图元主文件下载实现。
+        /// 当前统一入口由 GraphicsQueryController 提供：GET /api/graphics/{id}/file。
+        /// 保留本方法供历史兼容路由复用，避免与新控制器注册重复路由。
         /// </summary>
-        [HttpGet("{storageId:int}/file")] // 路由参数 storageId 必须为整数
         public async Task<IActionResult> DownloadGraphicFileAsync([FromRoute] int storageId)
         {
             var row = await GetStorageRowAsync(storageId); // 从数据库查询文件记录

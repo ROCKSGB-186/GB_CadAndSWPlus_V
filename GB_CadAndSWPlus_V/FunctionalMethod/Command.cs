@@ -741,6 +741,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         {
             try
             {
+                if (!TrayLauncher.IsRunning())
+                    return null;
                 SharedLoginSession session = sessionStore.Load();
                 if (string.IsNullOrWhiteSpace(session.ServerHost) ||
                     string.IsNullOrWhiteSpace(session.Username) ||

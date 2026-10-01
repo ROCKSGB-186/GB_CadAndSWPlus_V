@@ -60,8 +60,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         /// <returns>如果成功连接到 SolidWorks，则返回 true；否则返回 false。</returns>
         public bool ConnectToSW(object ThisSW, int Cookie)
         {
+            SolidWorksLog.Info("开始连接 SolidWorks 插件。");
             if (ThisSW == null)
             {
+                SolidWorksLog.Warning("SolidWorks 传入对象为空，插件连接失败。");
                 return false;
             }
 
@@ -79,10 +81,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 // 会根据这里登记的对象，通过方法名反射调用 ShowPipelineWindow 等方法。
                 _solidWorks.SetAddinCallbackInfo(0, this, _cookie);
                 RegisterCommands();
+                SolidWorksLog.Info($"SolidWorks 插件连接成功，命令组编号={CommandGroupId}。");
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
+                SolidWorksLog.Error($"SolidWorks 插件连接失败：{ex.Message}");
                 _solidWorks = null;
                 _cookie = 0;
                 return false;
@@ -95,6 +99,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         /// <returns>如果成功断开连接，则返回 true；否则返回 false。</returns>
         public bool DisconnectFromSW()
         {
+            SolidWorksLog.Info($"开始断开 SolidWorks 插件，当前窗口数量={_openWindows.Count}。");
             // SolidWorks 退出或卸载插件时先关闭由插件创建的 WPF 窗口，
             // 避免窗口继续持有宿主句柄或 SolidWorks COM 对象。
             foreach (Window window in _openWindows.ToArray())
@@ -108,6 +113,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
             _solidWorks = null;
             _cookie = 0;
             _userSession = new SwUserSession();
+            SolidWorksLog.Info("SolidWorks 插件已断开。");
             return true;
         }
 
@@ -177,6 +183,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 
         public void ShowPipelineWindow()
         {
+            SolidWorksLog.Info("收到打开管道页面命令。");
             if (!EnsureSignedIn())
             {
                 return;
@@ -187,6 +194,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 
         public void ShowFlangeWindow()
         {
+            SolidWorksLog.Info("收到打开法兰页面命令。");
             if (!EnsureSignedIn())
             {
                 return;
@@ -197,6 +205,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 
         public void ShowRightPanel()
         {
+            SolidWorksLog.Info("收到打开页面面板命令。");
             if (!EnsureSignedIn())
             {
                 return;
@@ -221,11 +230,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         {
             if (_userSession.IsSignedIn)
             {
+                SolidWorksLog.Info("检测到有效 SolidWorks 登录会话，继续执行操作。");
                 return true;
             }
 
             if (_solidWorks == null)
             {
+                SolidWorksLog.Warning("SolidWorks 尚未连接，无法执行登录。");
                 return false;
             }
 
@@ -233,6 +244,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
             var sessionStore = new SharedLoginSessionStore();
             try
             {
+                if (!TrayLauncher.IsRunning())
+                {
+                    SolidWorksLog.Info("托盘程序未运行，跳过共享会话自动登录。");
+                    goto ShowLoginWindow;
+                }
+                SolidWorksLog.Info("开始使用共享会话自动登录 SolidWorks。");
                 SharedLoginSession sharedSession = sessionStore.Load();
                 if (!string.IsNullOrWhiteSpace(sharedSession.ServerHost) &&
                     !string.IsNullOrWhiteSpace(sharedSession.Username) &&
@@ -243,16 +260,22 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                         .GetAwaiter()
                         .GetResult();
                     if (autoLogin?.Success == true)
+                    {
+                        SolidWorksLog.Info("共享会话自动登录 SolidWorks 成功。");
                         return true;
+                    }
 
+                    SolidWorksLog.Warning("共享会话自动登录 SolidWorks 失败，清理失效会话。");
                     sessionStore.Clear();
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine("共享 SolidWorks 会话自动登录失败：" + ex.Message);
+                SolidWorksLog.Error("共享 SolidWorks 会话自动登录异常：" + ex.Message);
             }
 
+        ShowLoginWindow:
+            SolidWorksLog.Info("打开 SolidWorks 统一登录窗口。");
             var loginWindow = new UnifiedLoginWindow(
                 UnifiedLoginPlatform.SolidWorks,
                 loginService,
@@ -263,8 +286,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 bool? result = loginWindow.ShowDialog();
                 if (result == true && loginWindow.LoginResult != null)
                 {
+                    SolidWorksLog.Info("SolidWorks 统一登录成功。");
                     return true;
                 }
+                SolidWorksLog.Warning("SolidWorks 统一登录窗口未完成登录。");
             }
             finally
             {

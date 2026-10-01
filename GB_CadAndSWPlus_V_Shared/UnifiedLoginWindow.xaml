@@ -160,23 +160,23 @@
                         <Style TargetType="ScrollBar" BasedOn="{StaticResource LoginScrollBarStyle}" />
                     </ScrollViewer.Resources>
                     <StackPanel>
-                        <TextBlock Text="服务器 IP / 主机名" Foreground="#526274" FontSize="12" Margin="0,0,0,6" Width="410" />
-                        <TextBox x:Name="ServerHostTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
-                        <TextBlock Text="API 服务端口" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
-                        <TextBox x:Name="ApiPortTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
-                        <TextBlock Text="用户名" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
-                        <TextBox x:Name="UsernameTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="410" />
-                        <TextBlock Text="密码" Foreground="#526274" FontSize="12" Margin="0,12,0,6" Width="410" />
-                        <Grid Height="36">
-                            <PasswordBox x:Name="PasswordBox" Style="{StaticResource LoginPasswordBoxStyle}" Width="410" />
-                            <TextBox x:Name="PasswordVisibleTextBox" Style="{StaticResource LoginTextBoxStyle}" Padding="12,0,42,0" Visibility="Collapsed" />
+                        <TextBlock Text="服务器 IP / 主机名" Foreground="#526274" FontSize="12" Margin="0,0,0,6" Width="380" Height="16" />
+                        <TextBox x:Name="ServerHostTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="390"  Height="35"/>
+                        <TextBlock Text="API 服务端口" Foreground="#526274" FontSize="12" Margin="0,5,0,6" Width="380" Height="16" />
+                        <TextBox x:Name="ApiPortTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="390"  Height="35"/>
+                        <TextBlock Text="用户名" Foreground="#526274" FontSize="12" Margin="0,5,0,6" Width="380" Height="16" />
+                        <TextBox x:Name="UsernameTextBox" Style="{StaticResource LoginTextBoxStyle}" Width="390"  Height="35"/>
+                        <TextBlock Text="密码" Foreground="#526274" FontSize="12" Margin="0,5,0,6" Width="380" Height="16" />
+                        <Grid Height="38">
+                            <PasswordBox x:Name="PasswordBox" Style="{StaticResource LoginPasswordBoxStyle}" Width="390"  Height="35"/>
+                            <TextBox x:Name="PasswordVisibleTextBox" Style="{StaticResource LoginTextBoxStyle}" Padding="12,0,42,0" Visibility="Collapsed" Width="390" Height="35"/>
                             <Button x:Name="TogglePasswordButton" Width="38" Height="34" Margin="0,1,1,1" Padding="0" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Click="TogglePassword_Click" Content="👁" FontFamily="Segoe UI Symbol" FontSize="15" Foreground="#6B7C8F" ToolTip="显示密码" />
                         </Grid>
                         <Grid Margin="0,10,0,0">
-                            <CheckBox x:Name="RememberPasswordCheckBox" Content="保存密码" Foreground="#526274" VerticalAlignment="Center" Margin="10,0,10,0" Width="400" />
-                            <TextBlock HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="#8090A2" Text="统一身份认证" Margin="335,0,0,0" Width="74" />
+                            <CheckBox x:Name="RememberPasswordCheckBox" Content="保存密码" Foreground="#526274" VerticalAlignment="Center" Margin="10,0,10,0" Width="380" />
+                            <TextBlock HorizontalAlignment="Left" VerticalAlignment="Center" Foreground="#8090A2" Text="统一身份认证" Margin="300,0,0,0" Width="74" />
                         </Grid>
-                        <Border BorderBrush="#E1E8F0" BorderThickness="1" CornerRadius="5" Padding="14,10" Margin="0,12,0,4" Width="410">
+                        <Border BorderBrush="#E1E8F0" BorderThickness="1" CornerRadius="5" Padding="14,10" Margin="0,12,0,4" Width="390">
                             <StackPanel x:Name="CadSettingsGroupBox">
                                 <TextBlock Text="CAD 服务器配置" Foreground="#1F2D3D" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10" />
                                 <Grid>

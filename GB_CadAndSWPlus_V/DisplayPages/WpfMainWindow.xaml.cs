@@ -1483,8 +1483,87 @@ namespace GB_CadAndSWPlus_V
                 return fileStorage.FilePath;
             }
 
-            // 内部方法已包含“有则返回，无则下载”的逻辑
-            return await ServerFileService.EnsureDwgCacheAsync(fileStorage, GetPath.DwgCachePath);
+            // 先尝试服务器缓存；服务器文件缺失时再使用项目内置 Resources 离线图元兜底。
+            string? serverPath = await ServerFileService.EnsureDwgCacheAsync(fileStorage, GetPath.DwgCachePath);
+            if (!string.IsNullOrWhiteSpace(serverPath))
+                return serverPath;
+
+            string? resourcePath = TryFindLocalResourceDwg(fileStorage);
+            if (!string.IsNullOrWhiteSpace(resourcePath))
+            {
+                LogManager.Instance.LogWarning($"服务器图元文件不可用，已切换本地 Resources 图元：{resourcePath}");
+                return resourcePath;
+            }
+
+            LogManager.Instance.LogWarning($"服务器和本地 Resources 均未找到图元文件：文件名={fileStorage.FileName}，显示名={fileStorage.DisplayName}");
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// 在客户端输出目录的 Resources 中查找与服务器图元名称最匹配的本地 DWG。
+        /// 仅接受唯一的最佳匹配，避免错误插入其他图元。
+        /// </summary>
+        private static string? TryFindLocalResourceDwg(FileStorage fileStorage)
+        {
+            try
+            {
+                string resourcesDirectory = ResolveLocalResourcesDirectory();
+                if (!Directory.Exists(resourcesDirectory))
+                    return null;
+
+                string fileName = Path.GetFileNameWithoutExtension(fileStorage.FileName ?? string.Empty);
+                string displayName = fileStorage.DisplayName?.Trim() ?? string.Empty;
+                string normalizedFileName = NormalizeResourceName(fileName);
+                string normalizedDisplayName = NormalizeResourceName(displayName);
+                if (normalizedFileName.Length == 0 && normalizedDisplayName.Length == 0)
+                    return null;
+
+                var candidates = Directory.GetFiles(resourcesDirectory, "*.dwg", SearchOption.AllDirectories)
+                    .Select(path => new
+                    {
+                        Path = path,
+                        Name = NormalizeResourceName(Path.GetFileNameWithoutExtension(path))
+                    })
+                    .Where(item => item.Name.Length > 0)
+                    .Select(item => new
+                    {
+                        item.Path,
+                        Score = item.Name == normalizedFileName || item.Name == normalizedDisplayName ? 100
+                            : (!string.IsNullOrEmpty(normalizedFileName) &&
+                               (item.Name.Contains(normalizedFileName) || normalizedFileName.Contains(item.Name))) ? 80
+                            : (!string.IsNullOrEmpty(normalizedDisplayName) &&
+                               (item.Name.Contains(normalizedDisplayName) || normalizedDisplayName.Contains(item.Name))) ? 70
+                            : 0
+                    })
+                    .Where(item => item.Score > 0)
+                    .OrderByDescending(item => item.Score)
+                    .ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (candidates.Count == 0 || !File.Exists(candidates[0].Path))
+                    return null;
+
+                if (candidates.Count > 1 && candidates[0].Score == candidates[1].Score)
+                {
+                    LogManager.Instance.LogWarning($"本地 Resources 图元匹配不唯一，跳过兜底：文件名={fileStorage.FileName}，候选数={candidates.Count}");
+                    return null;
+                }
+
+                return candidates[0].Path;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Instance.LogWarning($"查找本地 Resources 图元失败：{ex.Message}");
+                return null;
+            }
+        }
+
+        private static string NormalizeResourceName(string value)
+        {
+            return new string((value ?? string.Empty)
+                .Where(char.IsLetterOrDigit)
+                .ToArray())
+                .ToLowerInvariant();
         }
         /// <summary>
         /// 确保预览图的本地缓存存在并返回本地路径

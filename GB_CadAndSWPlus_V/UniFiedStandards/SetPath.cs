@@ -1,4 +1,8 @@
 using GB_CadAndSWPlus_V.FunctionalMethod;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace GB_CadAndSWPlus_V.UniFiedStandards
 {
@@ -54,6 +58,25 @@ namespace GB_CadAndSWPlus_V.UniFiedStandards
                     _cacheStoragePath = value;
                 }
             }
+        }
+
+        /// <summary>
+        /// 返回当前配置和历史默认位置的兼容缓存目录，避免切换 CacheStorage 后丢失旧缓存。
+        /// </summary>
+        public static IEnumerable<string> GetCompatibleCacheDirectories(string cacheName)
+        {
+            var paths = new List<string>();
+            AddCacheDirectory(paths, _cacheStoragePath, cacheName);
+            AddCacheDirectory(paths, AppDataPath, cacheName);
+            return paths;
+        }
+
+        private static void AddCacheDirectory(ICollection<string> paths, string? root, string cacheName)
+        {
+            if (string.IsNullOrWhiteSpace(root)) return;
+            string path = Path.Combine(root, cacheName);
+            if (!paths.Contains(path, StringComparer.OrdinalIgnoreCase))
+                paths.Add(path);
         }
 
         /// <summary>

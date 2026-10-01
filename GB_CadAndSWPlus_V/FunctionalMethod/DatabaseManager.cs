@@ -41,11 +41,13 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// </summary>
         public IDbConnection GetConnection()
         {
+            LogManager.Instance.LogInfo($"[数据库][连接开始] 数据库类型={_adapter.DatabaseType}。");
             var connection = _adapter.CreateConnection();
             if (connection is DmConnection dmConn)
             {
                 dmConn.StateChange += Connection_StateChange;
             }
+            LogManager.Instance.LogInfo($"[数据库][连接对象创建完成] 数据库类型={_adapter.DatabaseType}。");
             return connection;
         }
 
@@ -59,6 +61,8 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 throw new ArgumentNullException(nameof(connection));
             }
 
+            LogManager.Instance.LogInfo($"[数据库][写入开始] 数据库类型={_adapter.DatabaseType}。");
+
             // 【关键修复 1】确保连接已打开
             // Dapper 的 ExecuteAsync 会自动处理打开/关闭，但原生 ExecuteNonQuery 不会
             if (connection.State != System.Data.ConnectionState.Open)
@@ -71,7 +75,9 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 if (_adapter.DatabaseType == "MySQL")
                 {
                     // MySQL 走 Dapper 路径，Dapper 会管理连接生命周期
-                    return await connection.ExecuteAsync(sql, param, transaction).ConfigureAwait(false);
+                    int affectedRows = await connection.ExecuteAsync(sql, param, transaction).ConfigureAwait(false);
+                    LogManager.Instance.LogInfo($"[数据库][写入完成] 数据库类型={_adapter.DatabaseType}，影响行数={affectedRows}。");
+                    return affectedRows;
                 }
 
                 // 达梦 (DM) 或其他数据库走原生 ADO.NET 路径
@@ -87,7 +93,14 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
 
                 // 【关键修复 3】执行命令
                 // 此时连接必须是 Open 状态
-                return cmd.ExecuteNonQuery();
+                int dmAffectedRows = cmd.ExecuteNonQuery();
+                LogManager.Instance.LogInfo($"[数据库][写入完成] 数据库类型={_adapter.DatabaseType}，影响行数={dmAffectedRows}。");
+                return dmAffectedRows;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Instance.LogError($"[数据库][写入失败] 数据库类型={_adapter.DatabaseType}，错误={ex.Message}");
+                throw;
             }
             finally
             {
@@ -312,7 +325,13 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// </summary>
         public async Task<FileStorage> GetFileStorageAsync(string fileHash)
         {
-            if (string.IsNullOrWhiteSpace(fileHash)) return null;
+            if (string.IsNullOrWhiteSpace(fileHash))
+            {
+                LogManager.Instance.LogWarning("[数据库][查询图元] 文件 Hash 为空，跳过查询。");
+                return null;
+            }
+
+            LogManager.Instance.LogInfo($"[数据库][查询图元开始] 按 Hash 查询图元，Hash 长度={fileHash.Trim().Length}。");
 
             const string sql = @"
               SELECT 
@@ -393,11 +412,12 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 ord = reader.GetOrdinal("CreatedAt"); f.CreatedAt = reader.IsDBNull(ord) ? DateTime.MinValue : reader.GetDateTime(ord);
                 ord = reader.GetOrdinal("UpdatedAt"); f.UpdatedAt = reader.IsDBNull(ord) ? DateTime.MinValue : reader.GetDateTime(ord);
 
+                LogManager.Instance.LogInfo($"[数据库][查询图元完成] 按 Hash 查询成功，图元编号={f.Id}。");
                 return f;
             }
             catch (Exception ex)
             {
-                LogManager.Instance.LogError($"GetFileStorageAsync 出错: {ex.Message}");
+                LogManager.Instance.LogError($"[数据库][查询图元失败] 按 Hash 查询图元失败，错误={ex.Message}");
                 return null;
             }
         }
@@ -407,6 +427,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
         /// </summary>
         public async Task<List<FileStorage>> GetAllActiveFileStoragesAsync()
         {
+            LogManager.Instance.LogInfo("[数据库][查询图元列表开始] 查询全部有效图元。");
             const string sql = @"
         SELECT 
             id AS Id,
@@ -500,7 +521,7 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             }
             catch (Exception ex)
             {
-                LogManager.Instance.LogInfo($"GetAllActiveFileStoragesAsync 出错: {ex.Message}");
+                LogManager.Instance.LogError($"[数据库][查询图元列表失败] 查询全部有效图元失败，错误={ex.Message}");
                 return new List<FileStorage>();
             }
         }

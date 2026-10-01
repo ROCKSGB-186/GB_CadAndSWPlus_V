@@ -4,6 +4,8 @@
     <UseWPF>true</UseWPF>
     <RootNamespace>GB_CadAndSWPlus_V.Shared</RootNamespace>
     <AssemblyName>GB_CadAndSWPlus_V_Shared</AssemblyName>
+    <!-- 与 CAD/SolidWorks 的 x64 解决方案配置保持一致，确保共享 DLL 输出到对应平台目录。 -->
+    <Platforms>AnyCPU;x64</Platforms>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>

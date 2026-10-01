@@ -33,8 +33,8 @@ public sealed class RequestLoggingMiddleware
         string requestBody = await ReadBodySummaryAsync(context).ConfigureAwait(false);
 
         _logger.WriteLine(FileLogLevel.Info,
-            $"[RequestStart] TraceId={traceId}; ClientIp={clientIp}; Method={method}; Path={path}; " +
-            $"Query={query}; ContentLength={context.Request.ContentLength?.ToString() ?? "0"}; Body={requestBody}");
+            $"[请求开始] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
+            $"查询参数={query}；内容长度={context.Request.ContentLength?.ToString() ?? "0"}；请求体={requestBody}");
 
         Exception? exception = null;
         try
@@ -57,11 +57,11 @@ public sealed class RequestLoggingMiddleware
 
             string exceptionSummary = exception == null
                 ? string.Empty
-                : $"; ExceptionType={exception.GetType().FullName}; ExceptionMessage={exception.Message}";
+                : $"；异常类型={exception.GetType().FullName}；异常消息={exception.Message}";
 
             _logger.WriteLine(level,
-                $"[RequestEnd] TraceId={traceId}; ClientIp={clientIp}; Method={method}; Path={path}; " +
-                $"StatusCode={context.Response.StatusCode}; ElapsedMs={stopwatch.ElapsedMilliseconds}{exceptionSummary}");
+                $"[请求结束] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
+                $"状态码={context.Response.StatusCode}；耗时毫秒={stopwatch.ElapsedMilliseconds}{exceptionSummary}");
         }
     }
 
