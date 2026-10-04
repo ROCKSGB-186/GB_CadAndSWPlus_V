@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -6,12 +6,72 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>GB_CadAndSWPlus_V.Tray</RootNamespace>
     <AssemblyName>GB_CadAndSWPlus_V_Tray</AssemblyName>
+    <AssemblyVersion>3.26.1004.169</AssemblyVersion>
+    <FileVersion>3.26.1004.169</FileVersion>
+    <Version>3.26.1004.169</Version>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="Resources\seting.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\GB_CadAndSWPlus_V_Shared\GB_CadAndSWPlus_V_Shared.csproj" />
     <Reference Include="System.Net.Http" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="Resource.Designer.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>Resource.resx</DependentUpon>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Update="Resource.resx">
+      <Generator>PublicResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resource.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="DisplayPages\Icons\seting.png" />
+    <Resource Include="DisplayPages\Icons\中心.png" />
+    <Resource Include="DisplayPages\Icons\云同步.png" />
+    <Resource Include="DisplayPages\Icons\信息.png" />
+    <Resource Include="DisplayPages\Icons\停止.png" />
+    <Resource Include="DisplayPages\Icons\公告.png" />
+    <Resource Include="DisplayPages\Icons\关闭.png" />
+    <Resource Include="DisplayPages\Icons\删除.png" />
+    <Resource Include="DisplayPages\Icons\升级.png" />
+    <Resource Include="DisplayPages\Icons\单位.png" />
+    <Resource Include="DisplayPages\Icons\双箭头-右.png" />
+    <Resource Include="DisplayPages\Icons\双箭头-左.png" />
+    <Resource Include="DisplayPages\Icons\启动.png" />
+    <Resource Include="DisplayPages\Icons\启用.png" />
+    <Resource Include="DisplayPages\Icons\复位.png" />
+    <Resource Include="DisplayPages\Icons\密码.png" />
+    <Resource Include="DisplayPages\Icons\屏蔽.png" />
+    <Resource Include="DisplayPages\Icons\平面图.png" />
+    <Resource Include="DisplayPages\Icons\所用场景.png" />
+    <Resource Include="DisplayPages\Icons\搜索.png" />
+    <Resource Include="DisplayPages\Icons\故障信息.png" />
+    <Resource Include="DisplayPages\Icons\暂停.png" />
+    <Resource Include="DisplayPages\Icons\沈阳铝镁院LOGO_NEW.png" />
+    <Resource Include="DisplayPages\Icons\法兰.png" />
+    <Resource Include="DisplayPages\Icons\消息.png" />
+    <Resource Include="DisplayPages\Icons\用户信息.png" />
+    <Resource Include="DisplayPages\Icons\登录进入.png" />
+    <Resource Include="DisplayPages\Icons\离线.png" />
+    <Resource Include="DisplayPages\Icons\管道.png" />
+    <Resource Include="DisplayPages\Icons\维保.png" />
+    <Resource Include="DisplayPages\Icons\编辑.png" />
+    <Resource Include="DisplayPages\Icons\视频设置.png" />
+    <Resource Include="DisplayPages\Icons\资产.png" />
+    <Resource Include="DisplayPages\Icons\返回上级.png" />
+    <Resource Include="DisplayPages\Icons\退出登录.png" />
+    <Resource Include="DisplayPages\Icons\重点部位.png" />
+    <Resource Include="DisplayPages\Icons\阈值设置.png" />
   </ItemGroup>
 </Project>

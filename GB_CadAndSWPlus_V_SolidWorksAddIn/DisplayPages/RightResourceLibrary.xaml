@@ -105,23 +105,25 @@
                                     <ScrollViewer x:Name="图元功能区" 
                                             Margin="0,0,0,0"
                                             FontSize="12"
-                                            HorizontalScrollBarVisibility="Auto"
+                                             HorizontalScrollBarVisibility="Disabled"
                                             CanContentScroll="False"
                                             VerticalScrollBarVisibility="Auto">
-                                        <Grid x:Name="按键功能区" HorizontalAlignment="Left" Width="305">
+                                        <Grid x:Name="按键功能区" HorizontalAlignment="Stretch">
                                             <Grid >
                                                 <Grid Margin="0">
                                                     <Grid.RowDefinitions>
-                                                        <RowDefinition Height="85" />
-                                                        <RowDefinition Height="60" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
                                                         <RowDefinition Height="*" />
                                                     </Grid.RowDefinitions>
                                                     <Grid Grid.Row="0">
                                                         <GroupBox
-                                                                x:Name="工艺表格"
+                                                                x:Name="工艺处理"
                                                                 Padding="0,3,0,0"
-                                                                Header="工艺表格" Margin="0,5,0,0">
-                                                            <WrapPanel x:Name="工艺表格按钮面板" Orientation="Horizontal" Height="55">
+                                                                Header="工艺处理" Margin="0,5,0,0">
+                                                            <WrapPanel x:Name="工艺处理按钮面板"
+                                                                       Orientation="Horizontal"
+                                                                       HorizontalAlignment="Stretch">
                                                                 <Button x:Name="_1"                                                                         
                                                                             Width="95"
                                                                             Height="25"
@@ -709,8 +711,30 @@
                 </Grid>
 
             </TabItem>
-            <TabItem Header="设置" Margin="0,0,0,0" Width="80" VerticalAlignment="Center" HorizontalAlignment="Center" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                <Grid Background="White" />
+            <TabItem HorizontalAlignment="Left" Height="22" Header="TabItem" VerticalAlignment="Top" Width="71" Margin="0,0,0,0">
+                <Grid Background="#FFE5E5E5"/>
+            </TabItem>
+            <TabItem x:Name="设置"
+                     Header="    设置"
+                     Margin="0,0,0,0"
+                     HorizontalContentAlignment="Stretch"
+                     VerticalContentAlignment="Stretch" VerticalAlignment="Top" HorizontalAlignment="Left" Width="80">
+                <Grid x:Name="设置内容"
+                      Background="White"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="200" />
+                        <RowDefinition Height="50" />
+                        <RowDefinition Height="auto" />
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="SolidWorksAddInVersionText"
+                               Grid.Row="0"
+                               Text="项目版本号：正在读取..."
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="#0078D4" />
+                </Grid>
             </TabItem>
         </TabControl>
 
@@ -718,14 +742,17 @@
         <Grid x:Name="LoginRequiredOverlay"
               Panel.ZIndex="100"
               Background="#FFF7F9FC"
+              d:Visibility="Collapsed"
               Visibility="Visible">
             <StackPanel HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         MaxWidth="280">
-                <TextBlock Text="请登录再进入CAD\SOLIDWORKS平台"
+                <TextBlock Text="请《登录》
+                           CAD与SOLIDWORKS
+                           数据互通平台"
                            TextWrapping="Wrap"
                            TextAlignment="Center"
-                           FontSize="16"
+                           FontSize="18"
                            FontWeight="Bold"
                            Foreground="#24527A"
                            Margin="10" />
@@ -734,11 +761,11 @@
                         Click="OpenLoginButton_Click"
                         HorizontalAlignment="Center"
                         Padding="22,8"
-                        Margin="10"
+                        Margin="12"
                         Foreground="#0563C1"
                         Background="Transparent"
                         BorderThickness="0"
-                        FontSize="14"
+                        FontSize="16"
                         Cursor="Hand" />
                 <TextBlock Text="登录后将加载统一部门、用户和图元数据。"
                            TextWrapping="Wrap"

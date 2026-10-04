@@ -6,6 +6,8 @@ using System;
 using System.Drawing;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -58,7 +60,7 @@ namespace GB_CadAndSWPlus_V.Tray
             // 创建并显示托盘图标
             _notifyIcon = new NotifyIcon
             {
-                Icon = SystemIcons.Application,
+                Icon = LoadTrayIcon(),
                 Text = "GB CAD/SolidWorks 统一登录",
                 ContextMenuStrip = menu,
                 Visible = true
@@ -75,8 +77,8 @@ namespace GB_CadAndSWPlus_V.Tray
         {
             _sessionStore.ClearAuthentication();
 
-            // 退出登录后仍通过统一退出检查，确保 CAD/SolidWorks 运行时托盘继续驻留。
-            RequestExit(true);
+            // 退出登录同时关闭后台托盘，确保下次打开 CAD/SolidWorks 必须重新登录。
+            ExitThread();
         }
 
         /// <summary>
@@ -99,6 +101,10 @@ namespace GB_CadAndSWPlus_V.Tray
                     MessageBoxIcon.Information);
                 return;
             }
+
+            // 退出后台程序等同于退出登录；清除共享令牌，确保下次打开 CAD/SolidWorks 必须重新登录。
+            if (!authenticationCleared)
+                _sessionStore.ClearAuthentication();
 
             // 只有确认所有客户端均已关闭后，才真正结束托盘消息循环。
             ExitThread();
@@ -126,6 +132,32 @@ namespace GB_CadAndSWPlus_V.Tray
             // 登录窗口显示后再次刷新账号显示
             UpdateAccountText();
         }
+
+        /// <summary>从项目复用的 PNG 文件创建托盘图标；文件缺失时回退到系统图标。</summary>
+        private static Icon LoadTrayIcon()
+        {
+            // 尝试从 Resources 文件夹加载 PNG 图标
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "seting.png");
+            if (!File.Exists(iconPath))
+                return SystemIcons.Application;
+
+            using (var bitmap = new Bitmap(iconPath))
+            {
+                IntPtr iconHandle = bitmap.GetHicon();
+                try
+                {
+                    using (var icon = Icon.FromHandle(iconHandle))
+                        return (Icon)icon.Clone();
+                }
+                finally
+                {
+                    DestroyIcon(iconHandle);
+                }
+            }
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool DestroyIcon(IntPtr handle);
 
         /// <summary>
         /// 根据本地会话更新托盘菜单中的账号显示文本。

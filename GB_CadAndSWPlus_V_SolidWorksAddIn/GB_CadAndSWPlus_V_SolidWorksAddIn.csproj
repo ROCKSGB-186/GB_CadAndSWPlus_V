@@ -13,12 +13,13 @@
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <RootNamespace>GB_CadAndSWPlus_V.SolidWorksAddIn</RootNamespace>
     <AssemblyName>GB_CadAndSWPlus_V_SolidWorksAddIn</AssemblyName>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- 程序集版本统一由本项目文件管理，避免与 AssemblyInfo.cs 中的版本重复。 -->
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <RegisterForComInterop>false</RegisterForComInterop>
     <ComVisible>true</ComVisible>
-    <AssemblyVersion>3.26.1001.168</AssemblyVersion>
-    <FileVersion>3.26.1001.168</FileVersion>
-    <Version>3.26.1001.168</Version>
+    <AssemblyVersion>3.26.1004.169</AssemblyVersion>
+    <FileVersion>3.26.1004.169</FileVersion>
+    <Version>3.26.1004.169</Version>
   </PropertyGroup>
 
   <ItemGroup>

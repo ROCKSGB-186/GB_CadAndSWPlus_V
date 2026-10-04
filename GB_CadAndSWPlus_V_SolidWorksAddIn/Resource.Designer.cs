@@ -63,6 +63,16 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn {
         /// <summary>
         ///   查找 System.Byte[] 类型的本地化资源。
         /// </summary>
+        public static byte[] seting {
+            get {
+                object obj = ResourceManager.GetObject("seting", resourceCulture);
+                return ((byte[])(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   查找 System.Byte[] 类型的本地化资源。
+        /// </summary>
         public static byte[] 删除 {
             get {
                 object obj = ResourceManager.GetObject("删除", resourceCulture);

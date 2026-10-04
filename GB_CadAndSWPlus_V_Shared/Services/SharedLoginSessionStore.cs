@@ -264,7 +264,6 @@ namespace GB_CadAndSWPlus_V.Shared.Services
             lock (SyncRoot)
             {
                 SharedLoginSession session = Load();
-                if (string.IsNullOrWhiteSpace(session.ServerHost)) return;
 
                 session.EncryptedPassword = string.Empty;
                 session.DisplayName = string.Empty;

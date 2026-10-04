@@ -1,13 +1,18 @@
 ﻿using SolidWorks.Interop.sldworks;
 using System;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using GB_CadAndSWPlus_V.Shared.Services;
+using Xarial.XCad.Base.Attributes;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 {
     /// <summary>
     /// RightResourceLibrary.xaml 的交互逻辑
     /// </summary>
+    [Title("CAD\\SOLIDWORKS资源库")] // 设置 SolidWorks 右侧任务面板标题，覆盖默认的控件类名。
+    [Icon(typeof(Resource), nameof(Resource.沈阳铝镁院LOGO_NEW))] // 使用项目内置 Logo 作为任务面板图标。
     public partial class RightResourceLibrary : UserControl
     {
         /// <summary>通知插件主入口打开统一登录窗口。</summary>
@@ -16,6 +21,28 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         public RightResourceLibrary()
         {
             InitializeComponent();
+            var versionText = FindName("SolidWorksAddInVersionText") as TextBlock;
+            if (versionText != null)
+                versionText.Text = GetProjectVersions();
+        }
+
+        /// <summary>读取当前已加载 SolidWorks 插件 DLL 的程序集版本号。</summary>
+        private static string GetAddInVersion()
+        {
+            return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "未知";
+        }
+
+        /// <summary>显示当前加载插件及相关项目的统一版本，便于确认各组件是否来自同一发布包。</summary>
+        private static string GetProjectVersions()
+        {
+            return string.Join(System.Environment.NewLine, new[]
+            {
+                $"CAD 平台版本号：{ProjectVersionInfo.CadVersion}",
+                $"SolidWorks 平台版本号：{GetAddInVersion()}",
+                $"Shared 平台版本号：{ProjectVersionInfo.SharedVersion}",
+                $"Server 平台版本号：{ProjectVersionInfo.ServerVersion}",
+                $"Tray 平台版本号：{ProjectVersionInfo.TrayVersion}"
+            });
         }
 
         /// <summary>
