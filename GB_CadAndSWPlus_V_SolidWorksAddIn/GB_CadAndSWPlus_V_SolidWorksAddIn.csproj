@@ -4,6 +4,10 @@
     <UseWPF>true</UseWPF>
     <PlatformTarget>x64</PlatformTarget>
     <Platforms>x64</Platforms>
+    <!-- SolidWorks 2022 为 64 位进程；固定使用 x64/net472。 -->
+    <!-- 禁止 XCad 在每次 Build 后自动执行 RegAsm，避免重复生成旧的 COM 注册项。 -->
+    <XCadRegDll>false</XCadRegDll>
+    <XCadRegTlb>false</XCadRegTlb>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
@@ -72,4 +76,19 @@
       <LastGenOutput>Resource.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>
+
+  <!--
+    每次成功生成后只注册当前 TargetPath，不执行 /unregister。
+    这样 SolidWorks 始终使用最新 DLL，同时不会删除或重建其它插件的注册信息。
+    HKLM 注册需要 Visual Studio 以管理员权限运行。
+  -->
+  <Target Name="RegisterSolidWorksAddIn" AfterTargets="AfterBuild">
+    <PropertyGroup>
+      <RegAsmTool>$(windir)\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe</RegAsmTool>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="Registering current SolidWorks AddIn DLL: $(TargetPath)" />
+    <Exec Command="&quot;$(RegAsmTool)&quot; &quot;$(TargetPath)&quot; /codebase"
+          Condition="Exists('$(TargetPath)')" />
+  </Target>
 </Project>

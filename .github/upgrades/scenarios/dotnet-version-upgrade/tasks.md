@@ -9,7 +9,7 @@
 ## Tasks
 
 - ✅ 01-prerequisites: 验证工具链并建立基线 ([Content](tasks/01-prerequisites/task.md), [Progress](tasks/01-prerequisites/progress-details.md))
-- 🔲 02-shared-library: 将共享库改为多目标框架
+- 🔄 02-shared-library: 将共享库改为多目标框架 ([Content](tasks/02-shared-library/task.md))
 - 🔲 03-solidworks-client: 将 SolidWorks AddIn 统一到 net48
 - 🔲 04-client-server-consumers: 验证 CAD、Tray 与 Server 消费方
 - 🔲 05-solution-validation: 执行全解决方案验证
