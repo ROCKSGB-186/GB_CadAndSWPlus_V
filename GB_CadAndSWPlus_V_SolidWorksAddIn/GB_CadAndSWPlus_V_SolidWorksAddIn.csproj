@@ -51,6 +51,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 与 CAD 客户端使用同一套 JSON 序列化库，统一处理服务端 ISO 8601 日期。 -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Xarial.XCad" Version="0.8.3" />
     <PackageReference Include="Xarial.XCad.SolidWorks" Version="0.8.3" />
     <PackageReference Include="Xarial.XCad.Toolkit" Version="0.8.3" />
