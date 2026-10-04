@@ -17,7 +17,7 @@
         </ResourceDictionary>
     </UserControl.Resources>
     <Grid Background="White">
-        <TabControl Style="{StaticResource TabControlStyle}">
+        <TabControl x:Name="LibraryTabControl" Style="{StaticResource TabControlStyle}">
             <TabItem x:Name="SW资源库" Header="SW资源库" Width="80"
                      FontSize="14"
                      FontWeight="Bold"
@@ -713,5 +713,39 @@
                 <Grid Background="White" />
             </TabItem>
         </TabControl>
+
+        <!-- 未登录时不显示任何业务图元，只显示统一登录入口。 -->
+        <Grid x:Name="LoginRequiredOverlay"
+              Panel.ZIndex="100"
+              Background="#FFF7F9FC"
+              Visibility="Visible">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="280">
+                <TextBlock Text="请登录再进入CAD\SOLIDWORKS平台"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           FontSize="16"
+                           FontWeight="Bold"
+                           Foreground="#24527A"
+                           Margin="10" />
+                <Button x:Name="OpenLoginButton"
+                        Content="点击登录"
+                        Click="OpenLoginButton_Click"
+                        HorizontalAlignment="Center"
+                        Padding="22,8"
+                        Margin="10"
+                        Foreground="#0563C1"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        FontSize="14"
+                        Cursor="Hand" />
+                <TextBlock Text="登录后将加载统一部门、用户和图元数据。"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Foreground="#666666"
+                           Margin="10,0" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </UserControl>

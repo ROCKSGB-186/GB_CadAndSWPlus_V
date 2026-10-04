@@ -1,0 +1,307 @@
+{
+  "settings": {
+    "components": {
+      "code": true,
+      "binaries": false
+    },
+    "targetId": "net48",
+    "targetDisplayName": ".NETFramework,Version=v4.8"
+  },
+  "analysisStartTime": "2026-10-04T03:57:25.4780622Z",
+  "analysisEndTime": "2026-10-04T03:57:27.6811537Z",
+  "privacyModeHelpUrl": "https://go.microsoft.com/fwlink/?linkid=2270980",
+  "stats": {
+    "summary": {
+      "projects": 5,
+      "issues": 2,
+      "incidents": 4,
+      "effort": 4
+    },
+    "charts": {
+      "severity": {
+        "Mandatory": 4,
+        "Optional": 0,
+        "Potential": 0,
+        "Information": 0
+      },
+      "category": {
+        "Project": 3,
+        "NuGet": 1
+      }
+    }
+  },
+  "projects": [
+    {
+      "path": "GB_CadAndSWPlus_V.csproj",
+      "startingProject": true,
+      "issues": 0,
+      "storyPoints": 0,
+      "properties": {
+        "appName": "GB_CadAndSWPlus_V",
+        "projectKind": "Wpf",
+        "frameworks": [
+          "net48"
+        ],
+        "languages": [
+          "C#"
+        ],
+        "tools": [
+          "MSBuild"
+        ],
+        "isSdkStyle": true,
+        "isTestProject": false,
+        "numberOfFiles": 209,
+        "numberOfCodeFiles": 86,
+        "linesTotal": 1479910,
+        "linesOfCode": 90955,
+        "totalApiScanned": 0,
+        "minLinesOfCodeToChange": 0,
+        "maxLinesOfCodeToChange": 0
+      },
+      "ruleInstances": [],
+      "features": []
+    },
+    {
+      "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Server\\GB_CadAndSWPlus_V_Server.csproj",
+      "startingProject": true,
+      "issues": 2,
+      "storyPoints": 2,
+      "properties": {
+        "appName": "GB_CadAndSWPlus_V_Server",
+        "projectKind": "AspNetCore",
+        "frameworks": [
+          "net8.0"
+        ],
+        "languages": [
+          "C#"
+        ],
+        "tools": [
+          "MSBuild"
+        ],
+        "isSdkStyle": true,
+        "isTestProject": false,
+        "numberOfFiles": 74,
+        "numberOfCodeFiles": 67,
+        "linesTotal": 15758,
+        "linesOfCode": 15511,
+        "totalApiScanned": 20466,
+        "minLinesOfCodeToChange": 0,
+        "maxLinesOfCodeToChange": 0
+      },
+      "ruleInstances": [
+        {
+          "incidentId": "e69e9f1b-deae-4c1e-bc6d-93fbcd29c53c",
+          "ruleId": "NuGet.0001",
+          "projectPath": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Server\\GB_CadAndSWPlus_V_Server.csproj",
+          "state": "Active",
+          "location": {
+            "snippetModel": {
+              "unrestricted": "Microsoft.ApplicationInsights.AspNetCore, 3.1.0\n\n\u5EFA\u8BAE:\n\nMicrosoft.ApplicationInsights.AspNetCore, 2.23.0",
+              "protected": "Microsoft.ApplicationInsights.AspNetCore, 3.1.0\n\n\u5EFA\u8BAE:\n\nMicrosoft.ApplicationInsights.AspNetCore, 2.23.0"
+            },
+            "kind": "File",
+            "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Server\\GB_CadAndSWPlus_V_Server.csproj",
+            "snippet": "Microsoft.ApplicationInsights.AspNetCore, 3.1.0\n\n\u5EFA\u8BAE:\n\nMicrosoft.ApplicationInsights.AspNetCore, 2.23.0",
+            "protectedSnippet": "Microsoft.ApplicationInsights.AspNetCore, 3.1.0\n\n\u5EFA\u8BAE:\n\nMicrosoft.ApplicationInsights.AspNetCore, 2.23.0",
+            "label": "Microsoft.ApplicationInsights.AspNetCore 3.1.0",
+            "properties": {
+              "PackageId": "Microsoft.ApplicationInsights.AspNetCore",
+              "PackageVersion": "3.1.0",
+              "PackageNewVersion": "2.23.0",
+              "PackageReplacements": null
+            }
+          }
+        },
+        {
+          "incidentId": "07830f1c-f6b4-4791-994c-1767a6b6c8be",
+          "ruleId": "Project.0002",
+          "projectPath": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Server\\GB_CadAndSWPlus_V_Server.csproj",
+          "state": "Active",
+          "location": {
+            "snippetModel": {
+              "unrestricted": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net8.0\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48",
+              "protected": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net8.0\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48"
+            },
+            "kind": "File",
+            "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Server\\GB_CadAndSWPlus_V_Server.csproj",
+            "snippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net8.0\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48",
+            "protectedSnippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net8.0\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48",
+            "properties": {
+              "CurrentTargetFramework": "net8.0",
+              "RecommendedTargetFramework": "net48"
+            }
+          }
+        }
+      ],
+      "features": []
+    },
+    {
+      "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Shared\\GB_CadAndSWPlus_V_Shared.csproj",
+      "startingProject": true,
+      "issues": 1,
+      "storyPoints": 1,
+      "properties": {
+        "appName": "GB_CadAndSWPlus_V_Shared",
+        "projectKind": "Wpf",
+        "frameworks": [
+          "net472"
+        ],
+        "languages": [
+          "C#"
+        ],
+        "tools": [
+          "MSBuild"
+        ],
+        "isSdkStyle": true,
+        "isTestProject": false,
+        "numberOfFiles": 5,
+        "numberOfCodeFiles": 5,
+        "linesTotal": 827,
+        "linesOfCode": 827,
+        "totalApiScanned": 1202,
+        "minLinesOfCodeToChange": 0,
+        "maxLinesOfCodeToChange": 0
+      },
+      "ruleInstances": [
+        {
+          "incidentId": "7d6952b5-4d20-472f-a8a0-bd551032f2d0",
+          "ruleId": "Project.0002",
+          "projectPath": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Shared\\GB_CadAndSWPlus_V_Shared.csproj",
+          "state": "Active",
+          "location": {
+            "snippetModel": {
+              "unrestricted": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+              "protected": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows"
+            },
+            "kind": "File",
+            "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Shared\\GB_CadAndSWPlus_V_Shared.csproj",
+            "snippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+            "protectedSnippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+            "properties": {
+              "CurrentTargetFramework": "net472",
+              "RecommendedTargetFramework": "net48-windows"
+            }
+          }
+        }
+      ],
+      "features": []
+    },
+    {
+      "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_SolidWorksAddIn\\GB_CadAndSWPlus_V_SolidWorksAddIn.csproj",
+      "startingProject": true,
+      "issues": 1,
+      "storyPoints": 1,
+      "properties": {
+        "appName": "GB_CadAndSWPlus_V_SolidWorksAddIn",
+        "projectKind": "WinForms",
+        "frameworks": [
+          "net472"
+        ],
+        "languages": [
+          "C#"
+        ],
+        "tools": [
+          "MSBuild"
+        ],
+        "isSdkStyle": true,
+        "isTestProject": false,
+        "numberOfFiles": 8,
+        "numberOfCodeFiles": 7,
+        "linesTotal": 697,
+        "linesOfCode": 540,
+        "totalApiScanned": 0,
+        "minLinesOfCodeToChange": 0,
+        "maxLinesOfCodeToChange": 0
+      },
+      "ruleInstances": [
+        {
+          "incidentId": "8a2f8640-ce59-4c11-828e-c765ed37fa26",
+          "ruleId": "Project.0002",
+          "projectPath": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_SolidWorksAddIn\\GB_CadAndSWPlus_V_SolidWorksAddIn.csproj",
+          "state": "Active",
+          "location": {
+            "snippetModel": {
+              "unrestricted": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+              "protected": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows"
+            },
+            "kind": "File",
+            "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_SolidWorksAddIn\\GB_CadAndSWPlus_V_SolidWorksAddIn.csproj",
+            "snippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+            "protectedSnippet": "\u5F53\u524D\u76EE\u6807\u6846\u67B6: net472\n\u5EFA\u8BAE\u7684\u76EE\u6807\u6846\u67B6: net48-windows",
+            "properties": {
+              "CurrentTargetFramework": "net472",
+              "RecommendedTargetFramework": "net48-windows"
+            }
+          }
+        }
+      ],
+      "features": []
+    },
+    {
+      "path": "%USERPROFILE%\\source\\repos\\GB_CadAndSWPlus_V_Solution\\GB_CadAndSWPlus_V_Tray\\GB_CadAndSWPlus_V_Tray.csproj",
+      "startingProject": true,
+      "issues": 0,
+      "storyPoints": 0,
+      "properties": {
+        "appName": "GB_CadAndSWPlus_V_Tray",
+        "projectKind": "Wpf",
+        "frameworks": [
+          "net48"
+        ],
+        "languages": [
+          "C#"
+        ],
+        "tools": [
+          "MSBuild"
+        ],
+        "isSdkStyle": true,
+        "isTestProject": false,
+        "numberOfFiles": 2,
+        "numberOfCodeFiles": 2,
+        "linesTotal": 365,
+        "linesOfCode": 365,
+        "totalApiScanned": 0,
+        "minLinesOfCodeToChange": 0,
+        "maxLinesOfCodeToChange": 0
+      },
+      "ruleInstances": [],
+      "features": []
+    }
+  ],
+  "rules": {
+    "Project.0002": {
+      "id": "Project.0002",
+      "isFeature": false,
+      "description": "\u9700\u8981\u5C06\u9879\u76EE\u7684\u76EE\u6807\u6846\u67B6\u66F4\u6539\u4E3A\u5DF2\u4E3A\u6B64\u5347\u7EA7\u9009\u62E9\u7684\u65B0\u76EE\u6807\u6846\u67B6\u3002\n\n\u5728\u5347\u7EA7\u671F\u95F4\uFF0C\u76EE\u6807\u6846\u67B6\u5C06\u5728\u9002\u7528\u65F6\u8C03\u6574\u4E3A\u5BF9\u5E94\u7684\u5E73\u53F0\u3002\u5728\u67D0\u4E9B\u60C5\u51B5\u4E0B\uFF0C\u5982\u679C\u9879\u76EE\u4F7F\u7528\u7684\u529F\u80FD\u76EE\u524D\u5728\u65B0\u5F0F .NET Framework (windows\u3001iOS\u3001Android \u7B49)\u4E2D\u5177\u6709\u81EA\u5DF1\u7684\u5E73\u53F0\uFF0C\u5219\u5728\u5347\u7EA7\u540E\u9879\u76EE\u4F1A\u751F\u6210\u591A\u4E2A\u76EE\u6807\u6846\u67B6\u3002",
+      "label": "\u9700\u8981\u66F4\u6539\u9879\u76EE\u7684\u76EE\u6807\u6846\u67B6",
+      "severity": "Mandatory",
+      "effort": 1,
+      "links": [
+        {
+          "title": "\u4ECE .NET Framework \u79FB\u690D\u5230 .NET \u7684\u6982\u8FF0",
+          "url": "https://go.microsoft.com/fwlink/?linkid=2265227",
+          "isCustom": false
+        },
+        {
+          "title": ".NET \u9879\u76EE SDK",
+          "url": "https://go.microsoft.com/fwlink/?linkid=2265226",
+          "isCustom": false
+        }
+      ]
+    },
+    "NuGet.0001": {
+      "id": "NuGet.0001",
+      "isFeature": false,
+      "description": "NuGet \u5305\u4E0E\u6240\u9009\u76EE\u6807\u6846\u67B6\u4E0D\u517C\u5BB9\u3002\n\n\u5305\u9700\u8981\u5347\u7EA7\u5230\u652F\u6301\u6240\u9009\u9879\u76EE\u76EE\u6807\u6846\u67B6\u7684\u7248\u672C\u3002\u5982\u679C\u6CA1\u6709\u652F\u6301\u65B0\u76EE\u6807\u6846\u67B6\u7684\u65B0\u5305\u7248\u672C\uFF0C\u5219\u9700\u8981\u4F7F\u7528\u4E0D\u540C\u7684\u5305\uFF0C\u5E76\u4E14\u6240\u6709\u4EE3\u7801\u90FD\u9700\u8981\u5347\u7EA7\u5230\u65B0\u7684 API\u3002",
+      "label": "NuGet \u5305\u4E0D\u517C\u5BB9",
+      "severity": "Mandatory",
+      "effort": 1,
+      "links": [
+        {
+          "url": "https://go.microsoft.com/fwlink/?linkid=2262529",
+          "isCustom": false
+        }
+      ]
+    }
+  }
+}
