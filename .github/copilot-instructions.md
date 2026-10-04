@@ -16,6 +16,9 @@
 - 用户调整规划：保留 GB_CadAndSWPlus_V_Server 的 net8.0，不将 Server 降到 net48；对跨 net48 客户端与 net8.0 Server 共享的项目采用多目标框架，以保持服务器功能可用。
 - SolidWorks 与 CAD 客户端/服务器端操作日志必须使用中文、记录具体时间，并按相同日志根路径分为 CAD 与 SOLIDWORKS 两个文件夹。
 - SolidWorks 右侧 Resource Library 页面未登录时不得显示业务内容；可以隐藏，或显示“请登录再进入CAD\\SOLIDWORKS平台”并提供可点击链接调用统一登录按钮。
+- SolidWorks RightResourceLibrary 中需要把“工具设置”“管理员模块”“部门\人员模块”作为与“SW资源库”同级的三个顶层 TabItem，直接加入 LibraryTabControl，而不是合并为一个“平台管理”TabItem。
+- 用户要求修改时必须同时保留 CAD 与 SolidWorks 两端原有页面内容，不得为了接入 Shared 控件删除或覆盖已复制的“工具设置”“管理员模块”“部门\人员模块”；方案必须完整检查两端 TabControl 内容并避免只修一端。
 
 ## 代码风格
 - 用户偏好：后续生成或修改的代码中，每一步和关键逻辑尽量加入清晰的中文注释。
+- 修改、修复或添加新功能时，必须严格限制变更范围，不得改动原有已完成且与当前问题无关的功能；先定位根因，再做最小修改并验证相关页面。

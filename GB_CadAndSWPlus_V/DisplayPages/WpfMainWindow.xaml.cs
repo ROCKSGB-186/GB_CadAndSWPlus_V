@@ -10,6 +10,7 @@ using Dm;
 using GB_CadAndSWPlus_V.DisplayPages;
 using GB_CadAndSWPlus_V.FunctionalMethod;
 using GB_CadAndSWPlus_V.Helpers;
+using GB_CadAndSWPlus_V.Shared;
 using GB_CadAndSWPlus_V.Models;
 using GB_CadAndSWPlus_V.UniFiedStandards;
 using GB_CadAndSWPlus_V.ViewModels;

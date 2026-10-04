@@ -69,6 +69,13 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resource.resx</DependentUpon>
     </Compile>
+    <Compile Update="DisplayPages\SolidWorksAdministrationView.xaml.cs">
+      <DependentUpon>SolidWorksAdministrationView.xaml</DependentUpon>
+    </Compile>
+    <Page Update="DisplayPages\SolidWorksAdministrationView.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
   </ItemGroup>
 
   <ItemGroup>

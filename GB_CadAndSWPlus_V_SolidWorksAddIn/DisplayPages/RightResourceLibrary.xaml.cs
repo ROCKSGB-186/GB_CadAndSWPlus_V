@@ -3,6 +3,7 @@ using System;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using GB_CadAndSWPlus_V.Shared.Services;
 using Xarial.XCad.Base.Attributes;
 
@@ -21,6 +22,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         public RightResourceLibrary()
         {
             InitializeComponent();
+            // 控件刚创建时先按未登录状态显示遮罩，避免 XCAD 延迟触发认证初始化时业务页面先显示。
+            SetAuthenticationState(false);
             var versionText = FindName("SolidWorksAddInVersionText") as TextBlock;
             if (versionText != null)
                 versionText.Text = GetProjectVersions();
@@ -56,12 +59,50 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         public void SetAuthenticationState(bool authenticated)
         {
             // 使用 FindName 兼容旧版 WPF/XAML 生成器，避免新增控件名称未生成字段时阻断编译。
-            var libraryTabControl = FindName("LibraryTabControl") as UIElement;
-            var loginRequiredOverlay = FindName("LoginRequiredOverlay") as UIElement;
+            var libraryTabControl = FindElement<UIElement>("LibraryTabControl");
+            var loginRequiredOverlay = FindElement<UIElement>("LoginRequiredOverlay");
+            var toolSettingsTab = FindElement<UIElement>("SWToolSettingsTab");
+            var adminModuleTab = FindElement<UIElement>("SWAdminModuleTab");
+            var departmentUsersModuleTab = FindElement<UIElement>("SWDepartmentUsersModuleTab");
             if (libraryTabControl != null)
                 libraryTabControl.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
             if (loginRequiredOverlay != null)
+            {
                 loginRequiredOverlay.Visibility = authenticated ? Visibility.Collapsed : Visibility.Visible;
+                Panel.SetZIndex(loginRequiredOverlay, authenticated ? 0 : 100);
+            }
+            if (toolSettingsTab != null)
+                toolSettingsTab.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
+            if (adminModuleTab != null)
+                adminModuleTab.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
+            if (departmentUsersModuleTab != null)
+                departmentUsersModuleTab.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private T FindElement<T>(string name) where T : UIElement
+        {
+            var element = FindName(name) as T;
+            if (element != null)
+                return element;
+
+            return FindVisualChild<T>(this, name);
+        }
+
+        private static T FindVisualChild<T>(DependencyObject parent, string name) where T : UIElement
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(parent);
+            for (int index = 0; index < childCount; index++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(parent, index);
+                if (child is T element && (element as FrameworkElement)?.Name == name)
+                    return element;
+
+                T nested = FindVisualChild<T>(child, name);
+                if (nested != null)
+                    return nested;
+            }
+
+            return null;
         }
 
         /// <summary>点击“点击登录”链接，交由插件主入口显示统一登录窗口。</summary>

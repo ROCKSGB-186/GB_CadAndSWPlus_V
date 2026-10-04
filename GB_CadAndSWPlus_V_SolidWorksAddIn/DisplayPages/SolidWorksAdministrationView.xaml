@@ -1,0 +1,64 @@
+<UserControl x:Class="GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages.SolidWorksAdministrationView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="White">
+    <Grid>
+        <TabControl x:Name="AdministrationTabControl" Style="{StaticResource TabControlStyle}" ItemContainerStyle="{StaticResource HiddenAdministrationTabItemStyle}">
+            <TabItem x:Name="工具设置Tab" Header="工具设置" FontWeight="Bold">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="6">
+                        <GroupBox Header="系统配置" Margin="0,2">
+                            <Grid Margin="5">
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Text="服务器版本配置：" VerticalAlignment="Center" />
+                                <TextBox x:Name="ServerVersionTextBox" Grid.Row="0" Margin="100,0,0,3" />
+                                <TextBlock Grid.Row="1" Text="客户端版本配置：" VerticalAlignment="Center" />
+                                <TextBox x:Name="ClientVersionTextBox" Grid.Row="1" Margin="100,0,0,3" />
+                                <Button Grid.Row="2" Content="保存系统配置" Click="SaveSystemConfig_Click" HorizontalAlignment="Left" />
+                            </Grid>
+                        </GroupBox>
+                        <TextBlock x:Name="SettingsStatusText" Margin="2" Foreground="DarkSlateGray" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem x:Name="管理员模块Tab" Header="管理员模块" FontWeight="Bold">
+                <Grid Margin="5">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <WrapPanel>
+                        <Button Content="刷新部门" Click="RefreshDepartments_Click" />
+                        <Button Content="新增部门" Click="AddDepartment_Click" />
+                        <Button Content="删除部门" Click="DeleteDepartment_Click" />
+                    </WrapPanel>
+                    <DataGrid x:Name="AdminDepartmentsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" Margin="0,5,0,0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="名称" Binding="{Binding DisplayName}" Width="*" />
+                            <DataGridTextColumn Header="用户数" Binding="{Binding UserCount}" Width="55" />
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding IsActive}" Width="45" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+            <TabItem x:Name="部门人员模块Tab" Header="部门\人员模块" FontWeight="Bold">
+                <Grid Margin="5">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock Text="部门列表" FontWeight="Bold" />
+                    <DataGrid x:Name="DepartmentsGrid" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionChanged="DepartmentsGrid_SelectionChanged">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="部门" Binding="{Binding DisplayName}" Width="*" />
+                            <DataGridTextColumn Header="人数" Binding="{Binding UserCount}" Width="45" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock Grid.Row="2" Text="人员列表" FontWeight="Bold" Margin="0,5,0,2" />
+                    <DataGrid x:Name="UsersGrid" Grid.Row="3" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="账号" Binding="{Binding Username}" Width="*" />
+                            <DataGridTextColumn Header="姓名" Binding="{Binding RealName}" Width="*" />
+                            <DataGridTextColumn Header="角色" Binding="{Binding Role}" Width="65" />
+                            <DataGridCheckBoxColumn Header="启用" Binding="{Binding IsActive}" Width="45" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>
