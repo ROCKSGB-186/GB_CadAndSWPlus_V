@@ -87,6 +87,7 @@ namespace GB_CadAndSWPlus_V.Helpers
         {
             using (var request = new HttpRequestMessage(method, ApiEndpoint.Build(path)))
             {
+                request.Headers.TryAddWithoutValidation("X-Client-Platform", "CAD");
                 if (body != null) request.Content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
                 using (var response = await HttpClient.SendAsync(request, cancellationToken).ConfigureAwait(false))
                 {

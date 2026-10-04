@@ -40,7 +40,6 @@
                      Margin="0,0,0,0">
 
                 <Grid x:Name="CAD图元Grid" >
-
                     <Grid.RowDefinitions>
                         <RowDefinition Height="125" />
                         <RowDefinition Height="2" />

@@ -44,6 +44,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             string path = request.Path;
             string queryString = request.QueryString.HasValue ? request.QueryString.Value! : string.Empty;
             string traceId = context.HttpContext.TraceIdentifier;
+            string platform = GetPlatform(context.HttpContext);
 
             // 2. 获取关键请求参数摘要（避免日志过大，只取前 500 字符）
             string? bodySummary = null;
@@ -79,7 +80,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             sb.AppendLine($"  内容类型    : {request.ContentType ?? string.Empty}");
             sb.AppendLine($"  用户标识    : {context.HttpContext.User?.Identity?.Name ?? "匿名"}");
 
-            _logger.WriteLine(LogLevel.Info, sb.ToString());
+            _logger.WriteLineForPlatform(platform, LogLevel.Info, sb.ToString());
 
             // 4. 执行实际动作
             Exception? occurredException = null;
@@ -111,7 +112,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 resultSb.AppendLine($"  异常类型    : {occurredException.GetType().FullName}");
                 resultSb.AppendLine($"  异常消息    : {occurredException.Message}");
                 resultSb.AppendLine($"  堆栈摘要    : {occurredException.StackTrace?[..Math.Min(occurredException.StackTrace?.Length ?? 0, 1000)]}");
-                _logger.WriteLine(LogLevel.Error, resultSb.ToString());
+                _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
             }
 
             else if (resultContext != null)
@@ -126,7 +127,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 if (statusCode >= 200 && statusCode < 300)
                 {
                     resultSb.AppendLine($"  结果        : ✅ 成功 (HTTP {statusCode})");
-                    _logger.WriteLine(LogLevel.Info, resultSb.ToString());
+                    _logger.WriteLineForPlatform(platform, LogLevel.Info, resultSb.ToString());
                 }
                 else if (statusCode >= 400 && statusCode < 500)
                 {
@@ -134,7 +135,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                     resultSb.AppendLine($"  结果        : ⚠️ 客户端错误 (HTTP {statusCode})");
                     if (resultContext.Result != null)
                         resultSb.AppendLine($"  返回详情    : {resultContext.Result}");
-                    _logger.WriteLine(LogLevel.Warning, resultSb.ToString());
+                    _logger.WriteLineForPlatform(platform, LogLevel.Warning, resultSb.ToString());
                 }
                 else if (statusCode >= 500)
                 {
@@ -145,12 +146,12 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                         resultSb.AppendLine($"  异常类型    : {resultContext.Exception.GetType().FullName}");
                         resultSb.AppendLine($"  异常消息    : {resultContext.Exception.Message}");
                     }
-                    _logger.WriteLine(LogLevel.Error, resultSb.ToString());
+                    _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
                 }
                 else
                 {
                     resultSb.AppendLine($"  结果        : HTTP {statusCode}");
-                    _logger.WriteLine(LogLevel.Info, resultSb.ToString());
+                    _logger.WriteLineForPlatform(platform, LogLevel.Info, resultSb.ToString());
                 }
             }
 
@@ -213,6 +214,14 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
 
             // 最后使用直接连接的远程 IP
             return context.Connection.RemoteIpAddress?.ToString() ?? "未知";
+        }
+
+        private static string GetPlatform(HttpContext context)
+        {
+            string platform = context.Request.Headers["X-Client-Platform"].FirstOrDefault();
+            return string.Equals(platform, "SOLIDWORKS", StringComparison.OrdinalIgnoreCase)
+                ? "SOLIDWORKS"
+                : "CAD";
         }
     }
 }

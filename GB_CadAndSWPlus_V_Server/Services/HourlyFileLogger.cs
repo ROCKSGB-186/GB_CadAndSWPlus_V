@@ -109,6 +109,14 @@ namespace GB_CadAndSWPlus_V_Server.Services
         /// </summary>
         public void WriteLine(LogLevel level, string message)
         {
+            WriteLineForPlatform("CAD", level, message);
+        }
+
+        /// <summary>
+        /// 按客户端平台写入日志，平台目录仅允许 CAD 或 SOLIDWORKS，避免路径注入。
+        /// </summary>
+        public void WriteLineForPlatform(string platform, LogLevel level, string message)
+        {
             string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
             string levelStr = level switch
             {
@@ -117,15 +125,19 @@ namespace GB_CadAndSWPlus_V_Server.Services
                 LogLevel.Error => "ERROR",
                 _ => "INFO"
             };
-            string line = $"[{timestamp}] [{levelStr}] {message}";
+            string safePlatform = string.Equals(platform, "SOLIDWORKS", StringComparison.OrdinalIgnoreCase)
+                ? "SOLIDWORKS"
+                : "CAD";
+            string platformDirectory = Path.Combine(_logDirectory, safePlatform);
+            string line = $"[{timestamp}] [{levelStr}] [{safePlatform}] {message}";
 
             lock (_lock)
             {
                 try
                 {
-                    EnsureWriter();
-                    _writer?.WriteLine(line);
-                    _writer?.Flush();
+                    Directory.CreateDirectory(platformDirectory);
+                    string filePath = Path.Combine(platformDirectory, $"{_fileNamePrefix}_{DateTime.Now:yyyyMMdd_HH}.log");
+                    File.AppendAllText(filePath, line + Environment.NewLine, Encoding.UTF8);
                 }
                 catch
                 {

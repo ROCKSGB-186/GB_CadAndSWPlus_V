@@ -27,12 +27,13 @@ public sealed class RequestLoggingMiddleware
         string clientIp = GetClientIp(context);
         string method = context.Request.Method;
         string path = context.Request.Path.ToString();
+        string platform = GetPlatform(context);
         string query = context.Request.QueryString.HasValue
             ? SanitizeQuery(context.Request.Query)
             : string.Empty;
         string requestBody = await ReadBodySummaryAsync(context).ConfigureAwait(false);
 
-        _logger.WriteLine(FileLogLevel.Info,
+        _logger.WriteLineForPlatform(platform, FileLogLevel.Info,
             $"[请求开始] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
             $"查询参数={query}；内容长度={context.Request.ContentLength?.ToString() ?? "0"}；请求体={requestBody}");
 
@@ -59,10 +60,19 @@ public sealed class RequestLoggingMiddleware
                 ? string.Empty
                 : $"；异常类型={exception.GetType().FullName}；异常消息={exception.Message}";
 
-            _logger.WriteLine(level,
+            _logger.WriteLineForPlatform(platform, level,
                 $"[请求结束] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
                 $"状态码={context.Response.StatusCode}；耗时毫秒={stopwatch.ElapsedMilliseconds}{exceptionSummary}");
         }
+    }
+
+    private static string GetPlatform(HttpContext context)
+    {
+        string platform = context.Request.Headers["X-Client-Platform"].FirstOrDefault();
+        if (string.Equals(platform, "SOLIDWORKS", StringComparison.OrdinalIgnoreCase))
+            return "SOLIDWORKS";
+
+        return "CAD";
     }
 
     private static async Task<string> ReadBodySummaryAsync(HttpContext context)

@@ -28,12 +28,13 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
             _logRootDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "GB_CADPLUS",
-                "Logs");
+                "Logs",
+                "CAD");
 
             // 2. 如果有用户指定的存储路径，则优先使用
             if (!string.IsNullOrWhiteSpace(GetPath._cacheStoragePath))
             {
-                _logRootDirectory = Path.Combine(GetPath._cacheStoragePath, "Logs");
+                _logRootDirectory = Path.Combine(GetPath._cacheStoragePath, "Logs", "CAD");
             }
 
             // 3. 确保目录存在
@@ -55,11 +56,12 @@ namespace GB_CadAndSWPlus_V.FunctionalMethod
                 _logRootDirectory = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "GB_CADPLUS",
-                    "Logs");
+                    "Logs",
+                    "CAD");
             }
             else
             {
-                _logRootDirectory = Path.Combine(storagePath, "Logs");
+                _logRootDirectory = Path.Combine(storagePath, "Logs", "CAD");
             }
 
             EnsureDirectoryExists(_logRootDirectory);
