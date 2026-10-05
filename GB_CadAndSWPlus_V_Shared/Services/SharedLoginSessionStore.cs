@@ -305,7 +305,7 @@ namespace GB_CadAndSWPlus_V.Shared.Services
         /// </summary>
         /// <param name="value">Base64 编码的加密字符串。</param>
         /// <returns>解密后的明文。</returns>
-        private static string Unprotect(string value)
+        public static string Unprotect(string value)
             => Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(value), null, DataProtectionScope.CurrentUser));
     }
 }

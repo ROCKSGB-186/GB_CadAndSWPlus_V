@@ -27,6 +27,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var versionText = FindName("SolidWorksAddInVersionText") as TextBlock;
             if (versionText != null)
                 versionText.Text = GetProjectVersions();
+
+            // 控件全部完成初始化后再执行一次筛选，填充用户列表的初始数据源。
+            ApplySolidWorksUserFilter();
         }
 
         /// <summary>读取当前已加载 SolidWorks 插件 DLL 的程序集版本号。</summary>
@@ -77,7 +80,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 adminModuleTab.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
             if (departmentUsersModuleTab != null)
                 departmentUsersModuleTab.Visibility = authenticated ? Visibility.Visible : Visibility.Collapsed;
+
+            SetDepartmentUserAuthentication(authenticated);
         }
+
+        partial void SetDepartmentUserAuthentication(bool authenticated);
 
         private T FindElement<T>(string name) where T : UIElement
         {

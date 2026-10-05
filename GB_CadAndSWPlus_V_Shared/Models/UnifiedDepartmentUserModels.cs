@@ -27,6 +27,7 @@ namespace GB_CadAndSWPlus_V.Shared.Models
         [DataMember(Name = "gender")] public string Gender { get; set; } = string.Empty;
         [DataMember(Name = "phone")] public string Phone { get; set; } = string.Empty;
         [DataMember(Name = "email")] public string Email { get; set; } = string.Empty;
+        [DataMember(Name = "departmentId")] public int? DepartmentId { get; set; }
         [DataMember(Name = "departmentName")] public string DepartmentName { get; set; } = string.Empty;
         [DataMember(Name = "isActive")] public bool IsActive { get; set; }
     }
@@ -49,6 +50,14 @@ namespace GB_CadAndSWPlus_V.Shared.Models
 
     [DataContract]
     public sealed class UnifiedDepartmentMutationResponse
+    {
+        [DataMember(Name = "success")] public bool Success { get; set; }
+        [DataMember(Name = "message")] public string Message { get; set; } = string.Empty;
+        [DataMember(Name = "id")] public int Id { get; set; }
+    }
+
+    [DataContract]
+    public sealed class UnifiedUserMutationResponse
     {
         [DataMember(Name = "success")] public bool Success { get; set; }
         [DataMember(Name = "message")] public string Message { get; set; } = string.Empty;

@@ -166,23 +166,44 @@ namespace GB_CadAndSWPlus_V.Shared
         private void LoadSharedSession()
         {
             SharedLoginSession session = _sessionStore.Load();
-            if (string.IsNullOrWhiteSpace(session.ServerHost))
+            if (session == null)
                 return;
 
-            ServerHostTextBox.Text = session.ServerHost;
-            ApiPortTextBox.Text = session.ApiPort.ToString();
-            UsernameTextBox.Text = session.Username;
-            RememberPasswordCheckBox.IsChecked = !string.IsNullOrWhiteSpace(session.EncryptedPassword);
-            if (RememberPasswordCheckBox.IsChecked == true)
+            ServerHostTextBox.Text = session.ServerHost ?? string.Empty;
+            ApiPortTextBox.Text = session.ApiPort > 0 ? session.ApiPort.ToString() : "10010";
+            DatabasePortTextBox.Text = session.DatabasePort > 0 ? session.DatabasePort.ToString() : "5236";
+            UsernameTextBox.Text = session.Username ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(session.DatabaseType))
             {
-                string password = _sessionStore.GetPassword(session);
-                PasswordBox.Password = password;
-                PasswordVisibleTextBox.Text = password;
+                foreach (object item in DatabaseTypeComboBox.Items)
+                {
+                    if (item is System.Windows.Controls.ComboBoxItem comboBoxItem &&
+                        string.Equals(comboBoxItem.Content as string, session.DatabaseType, StringComparison.OrdinalIgnoreCase))
+                    {
+                        DatabaseTypeComboBox.SelectedItem = comboBoxItem;
+                        break;
+                    }
+                }
             }
-            DatabasePortTextBox.Text = session.DatabasePort > 0
-                ? session.DatabasePort.ToString()
-                : DatabasePortTextBox.Text;
-            SelectDatabaseType(session.DatabaseType);
+
+            string password = string.Empty;
+            if (!string.IsNullOrWhiteSpace(session.EncryptedPassword))
+            {
+                try
+                {
+                    UnifiedLoginRequest restoredRequest = _sessionStore.ToLoginRequest(session, _platform);
+                    password = restoredRequest?.Password ?? string.Empty;
+                }
+                catch
+                {
+                    password = string.Empty;
+                }
+            }
+
+            PasswordBox.Password = password;
+            PasswordVisibleTextBox.Text = password;
+            RememberPasswordCheckBox.IsChecked = !string.IsNullOrWhiteSpace(password);
         }
 
         /// <summary>

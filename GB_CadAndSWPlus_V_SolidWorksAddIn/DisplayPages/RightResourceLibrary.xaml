@@ -1980,7 +1980,8 @@ Background="FloralWhite">
                                 HorizontalContentAlignment="Center"
                                 VerticalContentAlignment="Center"
                                 FontWeight="Normal"
-                                Text="输入用户名搜索/分配" />
+                                 Text="输入用户名搜索/分配"
+                                 TextChanged="TxtSearchUser_TextChanged" />
                             <Button
                                 x:Name="BtnAssignUser"
                                 Width="150"
@@ -2010,7 +2011,7 @@ Background="FloralWhite">
                                     Header="用户名" />
                                 <DataGridTextColumn
                                     Width="85"
-                                    Binding="{Binding FullName}"
+                                     Binding="{Binding RealName}"
                                     Header="姓名" />
                                 <DataGridTextColumn
                                     Width="123"
