@@ -12,6 +12,7 @@ namespace GB_CadAndSWPlus_V.Shared.Models
         [DataMember(Name = "displayName")] public string DisplayName { get; set; } = string.Empty;
         [DataMember(Name = "description")] public string Description { get; set; } = string.Empty;
         [DataMember(Name = "sortOrder")] public int SortOrder { get; set; }
+        [DataMember(Name = "managerUserId")] public int? ManagerUserId { get; set; }
         [DataMember(Name = "isActive")] public bool IsActive { get; set; } = true;
         [DataMember(Name = "userCount")] public int UserCount { get; set; }
     }

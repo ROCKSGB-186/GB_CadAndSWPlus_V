@@ -19,6 +19,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public SolidWorksAdministrationApiService(SharedLoginSession session)
         {
+            SolidWorksFileLogger.Info("初始化 SolidWorks 管理 API 服务。");
             _session = session ?? throw new ArgumentNullException(nameof(session));
         }
 
@@ -48,8 +49,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         private async Task<T> SendAsync<T>(HttpMethod method, string path, object body, CancellationToken cancellationToken)
         {
+            DateTime startedAt = DateTime.Now;
+            SolidWorksFileLogger.Start("调用 SolidWorks 管理 API：" + method.Method + " " + path);
             string host = (_session.ServerHost ?? string.Empty).Trim();
-            if (string.IsNullOrWhiteSpace(host)) throw new InvalidOperationException("统一登录会话中没有服务器地址。");
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                SolidWorksFileLogger.Skipped("调用 SolidWorks 管理 API：" + path, "统一登录会话中没有服务器地址");
+                throw new InvalidOperationException("统一登录会话中没有服务器地址。");
+            }
             string baseUrl = host.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || host.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? host : "http://" + host;
             string url = baseUrl.TrimEnd('/') + ":" + (_session.ApiPort > 0 ? _session.ApiPort : 10010) + "/" + path.TrimStart('/');
             SolidWorksFileLogger.Info("SolidWorks 管理 API 请求开始；方法=" + method.Method + "；路径=" + path);
@@ -61,10 +68,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 using (HttpResponseMessage response = await Client.SendAsync(request, cancellationToken).ConfigureAwait(false))
                 {
                     string text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    SolidWorksFileLogger.Info("SolidWorks 管理 API 请求完成；路径=" + path + "；HTTP=" + (int)response.StatusCode + "；响应长度=" + text.Length);
-                    if (!response.IsSuccessStatusCode) throw new InvalidOperationException("服务器接口请求失败，HTTP " + (int)response.StatusCode + "。");
+                    SolidWorksFileLogger.Info("SolidWorks 管理 API 请求完成；路径=" + path + "；HTTP=" + (int)response.StatusCode + "；响应长度=" + text.Length + "；耗时毫秒=" + (DateTime.Now - startedAt).TotalMilliseconds.ToString("0") + "。");
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        SolidWorksFileLogger.Error("SolidWorks 管理 API 返回失败；路径=" + path + "；HTTP=" + (int)response.StatusCode + "。");
+                        throw new InvalidOperationException("服务器接口请求失败，HTTP " + (int)response.StatusCode + "。");
+                    }
                     T result = JsonConvert.DeserializeObject<T>(text);
-                    if (result == null) throw new InvalidOperationException("服务器返回空响应。");
+                    if (result == null)
+                    {
+                        SolidWorksFileLogger.Error("SolidWorks 管理 API 返回空响应；路径=" + path + "。");
+                        throw new InvalidOperationException("服务器返回空响应。");
+                    }
+                    SolidWorksFileLogger.Complete("调用 SolidWorks 管理 API：" + method.Method + " " + path);
                     return result;
                 }
             }

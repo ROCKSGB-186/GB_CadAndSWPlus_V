@@ -1,5 +1,6 @@
 using GB_CadAndSWPlus_V.Shared.Models;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.Serialization;
@@ -24,16 +25,17 @@ namespace GB_CadAndSWPlus_V.Shared.Services
         public Task<UnifiedDepartmentListResponse> GetDepartmentsAsync(CancellationToken cancellationToken = default(CancellationToken))
             => SendAsync<UnifiedDepartmentListResponse>(HttpMethod.Get, "api/departments", null, cancellationToken);
 
-        public Task<UnifiedUserListResponse> GetUsersAsync(int departmentId, CancellationToken cancellationToken = default(CancellationToken))
-            => SendAsync<UnifiedUserListResponse>(HttpMethod.Get, "api/users?departmentId=" + departmentId, null, cancellationToken);
+        public Task<List<UnifiedUserModel>> GetUsersAsync(int departmentId, CancellationToken cancellationToken = default(CancellationToken))
+            => SendAsync<List<UnifiedUserModel>>(HttpMethod.Get, "api/users?departmentId=" + departmentId, null, cancellationToken);
 
-        public Task<UnifiedDepartmentMutationResponse> AddDepartmentAsync(string name, string displayName, string description, int sortOrder, CancellationToken cancellationToken = default(CancellationToken))
+        public Task<UnifiedDepartmentMutationResponse> AddDepartmentAsync(string name, string displayName, string description, int sortOrder, int? managerUserId = null, CancellationToken cancellationToken = default(CancellationToken))
             => SendAsync<UnifiedDepartmentMutationResponse>(HttpMethod.Post, "api/departments", new DepartmentRequest
             {
                 Name = name ?? string.Empty,
                 DisplayName = displayName ?? string.Empty,
                 Description = description ?? string.Empty,
                 SortOrder = sortOrder,
+                ManagerUserId = managerUserId,
                 IsActive = true
             }, cancellationToken);
 

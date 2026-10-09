@@ -5,26 +5,42 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Models
     /// <summary>SolidWorks 管理页使用的部门模型，与统一服务器部门接口字段保持一致。</summary>
     public sealed class SolidWorksDepartmentModel
     {
+        /// <summary>部门数据库编号。</summary>
         public int Id { get; set; }
+        /// <summary>部门内部名称。</summary>
         public string Name { get; set; } = string.Empty;
+        /// <summary>部门显示名称。</summary>
         public string DisplayName { get; set; } = string.Empty;
+        /// <summary>部门说明。</summary>
         public string Description { get; set; } = string.Empty;
+        /// <summary>部门排序值。</summary>
         public int SortOrder { get; set; }
+        /// <summary>部门是否启用。</summary>
         public bool IsActive { get; set; } = true;
+        /// <summary>部门当前人员数量。</summary>
         public int UserCount { get; set; }
     }
 
     /// <summary>SolidWorks 管理页使用的用户模型。</summary>
     public sealed class SolidWorksUserModel
     {
+        /// <summary>用户数据库编号。</summary>
         public int Id { get; set; }
+        /// <summary>用户登录账号。</summary>
         public string Username { get; set; } = string.Empty;
+        /// <summary>用户真实姓名。</summary>
         public string RealName { get; set; } = string.Empty;
+        /// <summary>用户角色。</summary>
         public string Role { get; set; } = string.Empty;
+        /// <summary>用户性别。</summary>
         public string Gender { get; set; } = string.Empty;
+        /// <summary>用户联系电话。</summary>
         public string Phone { get; set; } = string.Empty;
+        /// <summary>用户电子邮箱。</summary>
         public string Email { get; set; } = string.Empty;
+        /// <summary>所属部门名称。</summary>
         public string DepartmentName { get; set; } = string.Empty;
+        /// <summary>用户是否启用。</summary>
         public bool IsActive { get; set; }
     }
 

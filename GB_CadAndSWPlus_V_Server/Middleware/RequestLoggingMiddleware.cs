@@ -58,7 +58,7 @@ public sealed class RequestLoggingMiddleware
 
             string exceptionSummary = exception == null
                 ? string.Empty
-                : $"；异常类型={exception.GetType().FullName}；异常消息={exception.Message}";
+                : $"；异常类型={exception.GetType().FullName}；异常消息={SanitizeText(exception.Message)}";
 
             _logger.WriteLineForPlatform(platform, level,
                 $"[请求结束] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
@@ -150,6 +150,18 @@ public sealed class RequestLoggingMiddleware
             || name.Contains("key", StringComparison.OrdinalIgnoreCase)
             || name.Contains("authorization", StringComparison.OrdinalIgnoreCase)
             || name.Contains("configvalue", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string SanitizeText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        string value = text;
+        value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)(bearer\\s+)[^\\s;。]+", "$1***");
+        value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)((?:password|pwd|token|secret|authorization|access_token)\\s*[=:：]\\s*)[^;，。\\s]+", "$1***");
+        value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)(连接字符串\\s*[=:：]\\s*)[^；。]+", "$1***");
+        return value;
     }
 
     private static string GetClientIp(HttpContext context)

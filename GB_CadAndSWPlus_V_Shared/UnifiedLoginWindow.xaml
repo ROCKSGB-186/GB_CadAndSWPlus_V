@@ -150,8 +150,8 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0">
-                    <TextBlock Text="SW\CAD辅助设计平台" Foreground="#1F2D3D" FontSize="22" FontWeight="Bold" />
-                    <TextBlock Foreground="#8090A2" FontSize="12" Margin="0,6,0,16" ><Run Text="使用统一账号访问 "/><Run Language="zh-cn" Text="SW\"/><Run Text="CAD 工程设计平台"/></TextBlock>
+                    <TextBlock Text="二、三维辅助设计数据互联平台" Foreground="#1F2D3D" FontSize="22" FontWeight="Bold" />
+                    <TextBlock Foreground="#8090A2" FontSize="12" Margin="0,6,0,16" ><Run Text="使用统一账号进入 "/><Run Language="zh-cn" Text="："/><Run Text="CAD 与 SolidWorks"/></TextBlock>
                 </StackPanel>
 
                 <ScrollViewer x:Name="登录窗口信息Scroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8">

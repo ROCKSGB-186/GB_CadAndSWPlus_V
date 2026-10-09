@@ -42,9 +42,15 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
             string clientIp = GetClientIp(context.HttpContext);
             string method = request.Method;
             string path = request.Path;
-            string queryString = request.QueryString.HasValue ? request.QueryString.Value! : string.Empty;
+            string queryString = request.QueryString.HasValue ? SanitizeQuery(request.Query) : string.Empty;
             string traceId = context.HttpContext.TraceIdentifier;
             string platform = GetPlatform(context.HttpContext);
+            string controllerName = context.ActionDescriptor.RouteValues.TryGetValue("controller", out string? controller)
+                ? controller ?? "未知控制器"
+                : "未知控制器";
+            string actionName = context.ActionDescriptor.RouteValues.TryGetValue("action", out string? action)
+                ? action ?? "未知动作"
+                : "未知动作";
 
             // 2. 获取关键请求参数摘要（避免日志过大，只取前 500 字符）
             string? bodySummary = null;
@@ -79,6 +85,9 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
 
             sb.AppendLine($"  内容类型    : {request.ContentType ?? string.Empty}");
             sb.AppendLine($"  用户标识    : {context.HttpContext.User?.Identity?.Name ?? "匿名"}");
+            sb.AppendLine($"  业务控制器  : {controllerName}");
+            sb.AppendLine($"  业务动作    : {actionName}");
+            sb.AppendLine("  后台访问    : 已进入服务器业务/数据库访问边界，详细 SQL 参数不写入日志");
 
             _logger.WriteLineForPlatform(platform, LogLevel.Info, sb.ToString());
 
@@ -110,7 +119,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 // ---- 服务器端异常 ----
                 resultSb.AppendLine($"  结果        : ❌ 服务器端异常");
                 resultSb.AppendLine($"  异常类型    : {occurredException.GetType().FullName}");
-                resultSb.AppendLine($"  异常消息    : {occurredException.Message}");
+                resultSb.AppendLine($"  异常消息    : {SanitizeText(occurredException.Message)}");
                 resultSb.AppendLine($"  堆栈摘要    : {occurredException.StackTrace?[..Math.Min(occurredException.StackTrace?.Length ?? 0, 1000)]}");
                 _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
             }
@@ -144,7 +153,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                     if (resultContext.Exception != null)
                     {
                         resultSb.AppendLine($"  异常类型    : {resultContext.Exception.GetType().FullName}");
-                        resultSb.AppendLine($"  异常消息    : {resultContext.Exception.Message}");
+                        resultSb.AppendLine($"  异常消息    : {SanitizeText(resultContext.Exception.Message)}");
                     }
                     _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
                 }
@@ -195,6 +204,26 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 || name.Contains("secret", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("connection", StringComparison.OrdinalIgnoreCase)
                 || name.Contains("configvalue", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string SanitizeQuery(IQueryCollection query)
+        {
+            IEnumerable<string> values = query.Select(pair =>
+                pair.Key + "=" + (IsSensitiveName(pair.Key) ? "***" : string.Join(",", pair.Value)));
+            string result = string.Join("&", values);
+            return result.Length > 500 ? result.Substring(0, 500) + "..." : result;
+        }
+
+        private static string SanitizeText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            string value = text;
+            value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)(bearer\\s+)[^\\s;。]+", "$1***");
+            value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)((?:password|pwd|token|secret|authorization|access_token)\\s*[=:：]\\s*)[^;，。\\s]+", "$1***");
+            value = System.Text.RegularExpressions.Regex.Replace(value, "(?i)(连接字符串\\s*[=:：]\\s*)[^；。]+", "$1***");
+            return value;
         }
 
         /// <summary>

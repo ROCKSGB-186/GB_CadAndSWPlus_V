@@ -48,8 +48,8 @@ namespace GB_CadAndSWPlus_V.Shared
             if (department == null || _api == null) return;
             try
             {
-                UnifiedUserListResponse response = await _api.GetUsersAsync(department.Id);
-                SWUsersGrid.ItemsSource = response.Users ?? new List<UnifiedUserModel>();
+                List<UnifiedUserModel> users = await _api.GetUsersAsync(department.Id);
+                SWUsersGrid.ItemsSource = users ?? new List<UnifiedUserModel>();
             }
             catch (Exception ex)
             {

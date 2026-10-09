@@ -5064,6 +5064,7 @@ namespace GB_CadAndSWPlus_V
             try
             {
                 var contextMenu = new System.Windows.Controls.ContextMenu();
+                contextMenu.Opened += 分类树右键菜单_Opened;
 
                 // 新建分类菜单项
                 var newItem = new System.Windows.Controls.MenuItem { Header = "新建分类" };
@@ -5091,14 +5092,6 @@ namespace GB_CadAndSWPlus_V
                 RefreshItem.Click += 刷新文件列表按钮_Click;
                 contextMenu.Items.Add(RefreshItem);
 
-                var addStandardItem = new System.Windows.Controls.MenuItem { Header = "添加规范" };
-                addStandardItem.Click += 添加规范到分类库_MenuItem_Click;
-                contextMenu.Items.Add(addStandardItem);
-
-                var exportStandardItem = new System.Windows.Controls.MenuItem { Header = "导出规范" };
-                exportStandardItem.Click += 导出分类库规范_MenuItem_Click;
-                contextMenu.Items.Add(exportStandardItem);
-
                 treeView.ContextMenu = contextMenu;
 
                 LogManager.Instance.LogInfo("右键菜单添加成功");
@@ -5112,7 +5105,7 @@ namespace GB_CadAndSWPlus_V
 
         private async void 添加规范到分类库_MenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (!(SpecificationTreeView.SelectedItem is CategoryTreeNode node)
+            if (!(CategoryTreeView.SelectedItem is CategoryTreeNode node)
                 || !(node.Data is StandardManagementCategoryClient category))
             {
                 MessageBox.Show("请先选择要添加规范的分类库。", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -5120,6 +5113,45 @@ namespace GB_CadAndSWPlus_V
             }
 
             await 导入规范到分类库Async(category.Id).ConfigureAwait(true);
+        }
+
+        /// <summary>
+        /// CAD 分类树右键按下时先选中鼠标所在节点，避免菜单操作使用旧的选择项。
+        /// </summary>
+        private void 分类树右键按下(object sender, MouseButtonEventArgs e)
+        {
+            DependencyObject source = e.OriginalSource as DependencyObject;
+            while (source != null && !(source is TreeViewItem))
+                source = VisualTreeHelper.GetParent(source);
+
+            TreeViewItem item = source as TreeViewItem;
+            if (item == null) return;
+
+            item.IsSelected = true;
+            item.Focus();
+            LogManager.Instance.LogInfo("已通过右键选中CAD分类树节点。");
+        }
+
+        /// <summary>
+        /// 根据当前 CAD 分类节点类型更新右键菜单可用状态。
+        /// </summary>
+        private void 分类树右键菜单_Opened(object sender, RoutedEventArgs e)
+        {
+            ContextMenu menu = sender as ContextMenu;
+            if (menu == null) return;
+
+            CategoryTreeNode node = CategoryTreeView.SelectedItem as CategoryTreeNode;
+            bool hasNode = node != null;
+            bool isMainCategory = hasNode && node.Level == 0;
+            bool isCategory = hasNode && (node.Data is CadCategory || node.Data is CadSubcategory);
+            bool isStandardCategory = hasNode && node.Data is StandardManagementCategoryClient;
+
+            SetContextMenuItemEnabled(menu, "添加子分类", isCategory);
+            SetContextMenuItemEnabled(menu, "修改", isCategory);
+            SetContextMenuItemEnabled(menu, "删除", isCategory);
+            SetContextMenuItemEnabled(menu, "刷新", true);
+
+            LogManager.Instance.LogInfo("已刷新CAD分类树右键菜单状态。");
         }
 
         /// <summary>
@@ -5556,8 +5588,9 @@ namespace GB_CadAndSWPlus_V
                 // 确保存储路径存在
                 System.IO.Directory.CreateDirectory(_swStoragePath);
 
-                // 加载并显示SW分类树
-                //await LoadAndDisplayCategoryTreeAsync();
+                // SW 与 CAD 共用服务器分类树；切换数据库类型后重新加载，避免继续显示旧树数据。
+                await InitializeCategoryTreeAsync();
+                LogManager.Instance.LogInfo($"[加载SW数据库] 分类树加载并显示完成，节点数: {_categoryTreeNodes.Count}");
 
                 System.Windows.MessageBox.Show("SW数据库加载成功");
             }
@@ -8032,7 +8065,7 @@ namespace GB_CadAndSWPlus_V
             sampleRow["介质"] = "水";
             sampleRow["材质"] = "316不锈钢";
             sampleRow["规格"] = "Standard";
-            sampleRow["标准编号"] = "2.5";
+             sampleRow["标准号"] = "2.5";
             sampleRow["功率"] = "10KW";
             sampleRow["容积"] = "100L";
             sampleRow["压力"] = "5MPa";

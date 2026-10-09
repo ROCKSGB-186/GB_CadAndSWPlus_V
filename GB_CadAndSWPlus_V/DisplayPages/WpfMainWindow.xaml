@@ -4679,7 +4679,8 @@ Background="FloralWhite">
                             MinWidth="100"
                             MaxWidth="300"
                             Margin="0,0,-3,0"
-                            SelectedItemChanged="CategoryTreeView_SelectedItemChanged">
+                            SelectedItemChanged="CategoryTreeView_SelectedItemChanged"
+                            PreviewMouseRightButtonDown="分类树右键按下">
                             <TreeView.ItemContainerStyle>
                                 <Style TargetType="{x:Type TreeViewItem}" />
                             </TreeView.ItemContainerStyle>

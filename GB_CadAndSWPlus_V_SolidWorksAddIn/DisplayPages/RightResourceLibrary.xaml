@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:local="clr-namespace:GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages"
+             xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
              mc:Ignorable="d"
               d:Margin="0"
               d:MaxWidth="350"
@@ -14,6 +15,17 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="MainWindowStyleDictionary.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- SolidWorks 分类树主分类和子分类共用此右键菜单；菜单打开时通过 PlacementTarget 获取当前节点。 -->
+            <ContextMenu x:Key="SolidWorksCategoryContextMenu" Opened="SW_CategoryContextMenu_Opened">
+                <MenuItem Header="添加主分类" Click="SW_NewCategory_MenuItem_Click" />
+                <MenuItem Header="添加子分类" Click="SW_AddSubcategory_MenuItem_Click" />
+                <Separator />
+                <MenuItem Header="修改分类" Click="SW_Edit_MenuItem_Click" />
+                <MenuItem Header="删除分类" Click="SW_Delete_MenuItem_Click" />
+                <Separator />
+                <MenuItem Header="展开\折叠架构" Click="SW_展开_折叠架构_Click" />
+                <MenuItem Header="刷新架构树" Click="SW_刷新架构树按钮_Click" />
+            </ContextMenu>
         </ResourceDictionary>
     </UserControl.Resources>
     <Grid Background="White">
@@ -30,13 +42,27 @@
                       HorizontalAlignment="Stretch"
                       VerticalAlignment="Stretch">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="150" />
+                        <RowDefinition Height="170" />
                         <RowDefinition Height="*" />
-                        <RowDefinition Height="10" />
-                        <RowDefinition Height="10" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <TabControl x:Name="MajroTabControl"
-                                    Grid.Row="1"
+                    <Grid x:Name="预览窗口" Grid.Row="0">
+                        <!-- 图片与三维模型放在同一个预览窗口中，左侧显示图片，右侧显示三维模型。 -->
+                        <Border x:Name="_3D预览" Height="170" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="Gray" BorderThickness="1" Background="Black">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170" />
+                                    <ColumnDefinition Width="170" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="White" BorderBrush="Gray" BorderThickness="0,0,1,0">
+                                    <Image x:Name="SW_ViewImage" Width="170" Height="170" Stretch="Uniform" />
+                                </Border>
+                                <wv2:WebView2 x:Name="SW_ThreeDPreviewHost" Grid.Column="1" />
+                            </Grid>
+                        </Border>
+                    </Grid>
+                    <TabControl x:Name="MajroTabControl" Grid.Row="1"
                             Margin="0,0,0,0"
                             Padding="0,2,0,2"
                             Background="Azure"
@@ -54,7 +80,27 @@
                                             FontSize="12"
                                             FontWeight="Bold"
                                             Header="公用图元">
-                                        <WrapPanel x:Name="PublicButtonsPanel" />
+                                        <Grid Background="White">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="*" />
+                                                <RowDefinition Height="24" />
+                                            </Grid.RowDefinitions>
+                                            <!-- SolidWorks 图元按钮按数据库分类动态生成；滚动容器避免图元数量增加后挤压其他页面。 -->
+                                            <ScrollViewer Grid.Row="0"
+                                                          HorizontalScrollBarVisibility="Disabled"
+                                                          VerticalScrollBarVisibility="Auto"
+                                                          CanContentScroll="False">
+                                                <WrapPanel x:Name="PublicButtonsPanel"
+                                                           Margin="3"
+                                                           HorizontalAlignment="Left" />
+                                            </ScrollViewer>
+                                            <TextBlock x:Name="PublicElementsStatusText"
+                                                       Grid.Row="1"
+                                                       Margin="4,0"
+                                                       VerticalAlignment="Center"
+                                                       Foreground="Gray"
+                                                       Text="登录后加载 SolidWorks 数据库图元。" />
+                                        </Grid>
                                     </TabItem>
                                     <TabItem x:Name="常用工具"
                                             FontSize="12"
@@ -69,12 +115,6 @@
                                                 <RowDefinition Height="50" />
                                                 <RowDefinition Height="auto" />
                                             </Grid.RowDefinitions>
-                                            <TextBlock x:Name="SolidWorksAddInVersionText"
-                                             Grid.Row="0"
-                                             Text="项目版本号：正在读取..."
-                                             FontSize="16"
-                                             FontWeight="Bold"
-                                             Foreground="#0078D4" />
                                         </Grid>
                                     </TabItem>
 
@@ -211,7 +251,9 @@
                                                     <WrapPanel
                                                             x:Name="CraftButtonsPanel"
                                                             Grid.Row="2"
-                                                            Orientation="Vertical" />
+                                                            Orientation="Vertical">
+                                                        <WrapPanel x:Name="SolidWorksCraftDynamicPanel" Orientation="Vertical" />
+                                                    </WrapPanel>
                                                 </Grid>
                                             </Grid>
                                         </Grid>
@@ -284,7 +326,9 @@
                                                 <WrapPanel
                                                         x:Name="ArchitectureButtonsPanel"
                                                         Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                        Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksArchitectureDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
 
                                             </Grid>
@@ -346,7 +390,9 @@
                                                 <WrapPanel
                                                         x:Name="StructureButtonsPanel"
                                                         Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                        Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksStructureDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
                                             </Grid>
 
@@ -410,7 +456,9 @@
                                                 <WrapPanel
                                                         x:Name="PlumbingButtonsPanel"
                                                         Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                        Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksPlumbingDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
                                             </Grid>
 
@@ -496,9 +544,11 @@
                                                     <RowDefinition Height="200" />
                                                 </Grid.RowDefinitions>
                                                 <WrapPanel
-                                                        x:Name="HVACButtonsPanel"
-                                                        Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                                x:Name="HVACButtonsPanel"
+                                                                Grid.Row="0"
+                                                                Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksHvacDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
                                             </Grid>
 
@@ -563,7 +613,9 @@
                                                 <WrapPanel
                                                         x:Name="ElectricalButtonsPanel"
                                                         Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                        Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksElectricalDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
                                             </Grid>
 
@@ -627,7 +679,9 @@
                                                 <WrapPanel
                                                         x:Name="ControlButtonsPanel"
                                                         Grid.Row="0"
-                                                        Orientation="Vertical" />
+                                                        Orientation="Vertical">
+                                                    <WrapPanel x:Name="SolidWorksControlDynamicPanel" Orientation="Vertical" />
+                                                </WrapPanel>
                                                 <Grid Grid.Row="1" />
                                             </Grid>
 
@@ -686,7 +740,9 @@
                                                 Grid.Row="1"
                                                 Margin="0"
                                                 VerticalScrollBarVisibility="Auto">
-                                            <WrapPanel x:Name="GeneralButtonsPanel" Orientation="Vertical" />
+                                            <WrapPanel x:Name="GeneralButtonsPanel" Orientation="Vertical">
+                                                <WrapPanel x:Name="SolidWorksGeneralDynamicPanel" Orientation="Vertical" />
+                                            </WrapPanel>
                                         </ScrollViewer>
                                     </Grid>
                                 </TabItem>
@@ -1117,24 +1173,31 @@ Background="FloralWhite">
                                 <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
-                            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                            <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Margin="0,0,0,226" Grid.RowSpan="2">
                                 <StackPanel Margin="10,5,10,5">
                                     <!--  版本  -->
                                     <GroupBox
                                         x:Name="版本插入管理"
-                                        Height="107"
+                                        Height="310"
                                         Margin="0,1,0,1"
                                         Header="版本">
                                         <Grid>
+
+                                            <TextBlock x:Name="SolidWorksAddInVersionText_设置"
+ Grid.Row="0"
+ Text="项目版本号：正在读取..."
+ FontSize="16"
+ FontWeight="Bold"
+ Foreground="#0078D4" />
                                             <TextBlock
-                                                Height="25"
-                                                Margin="5,7,0,0"
+                                                Height="20"
+                                                Margin="10,208,0,0"
                                                 HorizontalAlignment="Left"
                                                 VerticalAlignment="Top"
                                                 Text="服务器版本：" />
                                             <TextBox
                                                 x:Name="TextBox插件版本"
-                                                Width="180"
+                                                Width="219"
                                                 Height="22"
                                                 Margin="0,0,5,60"
                                                 HorizontalAlignment="Right"
@@ -1147,14 +1210,14 @@ Background="FloralWhite">
                                                 Tag="版本："
                                                 TextWrapping="Wrap" />
                                             <TextBlock
-                                                Height="25"
-                                                Margin="6,0,0,0"
+                                                Height="20"
+                                                Margin="10,235,0,0"
                                                 HorizontalAlignment="Left"
-                                                VerticalAlignment="Center"
+                                                VerticalAlignment="Top"
                                                 Text="客户端版本：" />
                                             <TextBox
                                                 x:Name="TextBox客户端版本"
-                                                Width="180"
+                                                Width="219"
                                                 Height="22"
                                                 Margin="0,0,5,33"
                                                 HorizontalAlignment="Right"
@@ -1264,192 +1327,128 @@ Background="FloralWhite">
                                                 VerticalAlignment="Top"
                                                 Click="同步图元_Click"
                                                 Content="同步图元" />
-
                                         </Grid>
                                     </GroupBox>
                                 </StackPanel>
-
                             </ScrollViewer>
-
-                            <ScrollViewer x:Name="LogScrollViewer"
-                                Grid.Row="1"
-                                VerticalScrollBarVisibility="Auto">
+                        </Grid>
+                    </TabItem>
+                    <TabItem x:Name="日志Log" Margin="-2,-2,-38,0" Header="日志" FontWeight="Bold" FontSize="12">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <ScrollViewer x:Name="LogScrollViewer" Grid.Row="0" VerticalScrollBarVisibility="Auto">
                                 <TextBlock
-                                    x:Name="LogContentTextBlock"
-                                    FontFamily="Consolas"
-                                    FontSize="10"
-                                    Text="正在加载日志..."
-                                    TextWrapping="Wrap" />
+        x:Name="LogContentTextBlock"
+        FontFamily="Consolas"
+        FontSize="10"
+        Text="正在加载日志..."
+        TextWrapping="Wrap" />
                             </ScrollViewer>
-
                             <Grid
-                                Grid.Row="2"
-                                Height="Auto"
-                                Margin="0,0,0,0"
-                                VerticalAlignment="Top">
-
-
+    Grid.Row="1"
+    Height="Auto"
+    Margin="0,0,0,0"
+    VerticalAlignment="Top">
                                 <GroupBox x:Name="日志"
-                                    Margin="5,0,5,2"
-                                    HorizontalContentAlignment="Stretch"
-                                    VerticalContentAlignment="Stretch"
-                                    Header="日志">
+        Margin="5,0,5,2"
+        HorizontalContentAlignment="Stretch"
+        VerticalContentAlignment="Stretch"
+        Header="日志操作">
                                     <Grid Height="60">
                                         <Button x:Name="查看日志文件夹按钮"
-                                            Width="125"
-                                            Height="22"
-                                            Margin="10,33,151,0"
-                                            VerticalAlignment="Top"
-                                            VerticalContentAlignment="Bottom"
-                                            Click="查看日志文件夹按钮_Click"
-                                            Content="查看所有LOG" />
+                Width="125"
+                Height="22"
+                Margin="10,33,151,0"
+                VerticalAlignment="Top"
+                VerticalContentAlignment="Bottom"
+                Click="查看日志文件夹按钮_Click"
+                Content="查看所有LOG" />
                                         <Button x:Name="打开最新日志按钮"
-                                            Width="125"
-                                            Height="22"
-                                            Margin="151,0,10,33"
-                                            VerticalAlignment="Bottom"
-                                            VerticalContentAlignment="Bottom"
-                                            Click="打开最新日志按钮_Click"
-                                            Content="打开最新LOG " />
+                Width="125"
+                Height="22"
+                Margin="151,0,10,33"
+                VerticalAlignment="Bottom"
+                VerticalContentAlignment="Bottom"
+                Click="打开最新日志按钮_Click"
+                Content="打开最新LOG " />
                                         <Button x:Name="加载显示日志按钮"
-                                            Width="125"
-                                            Height="22"
-                                            Margin="10,5,151,0"
-                                            VerticalAlignment="Top"
-                                            VerticalContentAlignment="Bottom"
-                                            Click="加载显示日志按钮_Click"
-                                            Content="加载日志 " />
+                Width="125"
+                Height="22"
+                Margin="10,5,151,0"
+                VerticalAlignment="Top"
+                VerticalContentAlignment="Bottom"
+                Click="加载显示日志按钮_Click"
+                Content="加载日志 " />
                                         <Button x:Name="应用设置按钮"
-                                            Width="125"
-                                            Height="22"
-                                            Margin="151,0,10,5"
-                                            VerticalAlignment="Bottom"
-                                            VerticalContentAlignment="Bottom"
-                                            Click="应用设置按钮_Click"
-                                            Content="应用设置" />
+                Width="125"
+                Height="22"
+                Margin="151,0,10,5"
+                VerticalAlignment="Bottom"
+                VerticalContentAlignment="Bottom"
+                Click="应用设置按钮_Click"
+                Content="应用设置" />
                                     </Grid>
                                 </GroupBox>
                             </Grid>
                         </Grid>
+
+
+
                     </TabItem>
 
                 </TabControl>
 
             </TabItem>
             <!--  第三TabControlItem(管理员模块)  -->
-            <TabItem x:Name="SWAdminModuleTab"
+            <TabItem x:Name="SW_AdminModuleTab"
                 Height="28"
                 Header="管理员模块"
                 FontSize="14"
                 FontWeight="Bold" Margin="0,0,0,0" Width="80" >
-                <Grid >
+                <Grid x:Name="分类与图元操作功能区" >
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="40" />
-                        <RowDefinition Height="55" />
-                        <RowDefinition Height="3*" />
-                        <RowDefinition Height="155" />
-                        <RowDefinition Height="1" />
-                        <RowDefinition Height="2*" />
+                        <RowDefinition Height="170" />
+                        <RowDefinition Height="35" />
+                        <RowDefinition Height="1*" />
+                        <RowDefinition Height="195" />
+                        <RowDefinition Height="1*" />
+                        <RowDefinition Height="0.5*" />
+                        <RowDefinition Height="0" />
                     </Grid.RowDefinitions>
-                    <!--  第一行  -->
-                    <Grid Grid.Row="0" Background="FloralWhite">
-
-                        <Button
-                            Width="130"
-                            Height="25"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="11,4,151,6"
-                            Click="LoadCadDatabase_Btn_Click"
-                            Content="加载CAD数据库"
-                            FontSize="12" />
-                        <Button
-                            Width="130"
-                            Height="25"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="151,4,11,6"
-                            Click="LoadSwDatabase_Btn_Click"
-                            Content="加载SW数据库"
-                            FontSize="12" />
+                    <!-- 第二行原有分类操作按钮已移至 SolidWorks 分类树右键菜单。 -->
+                    <Grid x:Name="SW预览窗口" Grid.Row="0">
+                        <!-- 图片与三维模型放在同一个预览窗口中，左侧显示图片，右侧显示三维模型。 -->
+                        <Border x:Name="SW_3D预览" Height="170" Margin="0" HorizontalAlignment="Center" VerticalAlignment="Top" BorderBrush="Gray" BorderThickness="1" Background="Black">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170" />
+                                    <ColumnDefinition Width="170" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Background="White" BorderBrush="Gray" BorderThickness="0,0,1,0">
+                                    <Image x:Name="SW_资源ViewImage" Width="170" Height="170" Stretch="Uniform" />
+                                </Border>
+                                <wv2:WebView2 x:Name="SW_资源ThreeDPreviewHost" Grid.Column="1" />
+                            </Grid>
+                        </Border>
                     </Grid>
-                    <!--  第二行  -->
-                    <Grid Grid.Row="1" Background="Azure">
-                        <Button
-                            x:Name="添加主分类"
-                            Width="80"
+                    <!--  第一行  -->
+                    <Grid x:Name="主分类按键区" Grid.Row="1"  Background="FloralWhite">
+                        <Button x:Name="SW_加载分类数据库"
+                            Width="130"
                             Height="25"
                             MaxWidth="200"
                             MaxHeight="50"
-                            Margin="3,1,259,29"
-                            Click="NewCategory_MenuItem_Click"
-                            Content="添加主分类"
-                            FontSize="12" />
-                        <Button
-                            x:Name="添加子分类"
-                            Width="80"
-                            Height="25"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="3,28,259,1"
-                            Click="AddSubcategory_MenuItem_Click"
-                            Content="添加子分类"
-                            FontSize="12" />
-                        <Button
-                            x:Name="修改分类"
-                            Width="80"
-                            Height="25"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="88,1,174,29"
-                            Click="Edit_MenuItem_Click"
-                            Content="修改分类"
-                            FontSize="12" />
-                        <Button
-                            x:Name="删除分类"
-                            Width="80"
-                            Height="25"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="88,28,174,1"
-                            Click="Delete_MenuItem_Click"
-                            Content="删除分类"
-                            FontSize="14"
-                            TextBlock.FontSize="12" />
-                        <Button
-                            x:Name="展开_折叠架构"
-                            Width="80"
-                            Height="25"
-                            Margin="173,2,89,27"
-                            Click="展开_折叠架构_Click"
-                            Content="展开\折叠架构" />
-                        <Button
-                            x:Name="导入模板"
-                            Width="80"
-                            Height="25"
-                            Margin="173,28,89,1"
-                            Click="导入模板_Btn_Click"
-                            Content="导入模板" />
-                        <Button
-                            x:Name="刷新架构树按钮"
-                            Width="80"
-                            Height="25"
-                            Margin="258,2,4,27"
-                            Click="刷新架构树按钮_Click"
-                            Content="刷新架构树" />
-                        <Button
-                            x:Name="导出模板"
-                            Width="80"
-                            Height="25"
-                            Margin="258,29,4,1"
-                            Click="导出模板_Btn_Click"
-                            Content="导出模板" />
-
+                            HorizontalAlignment="Center"
+                            Margin="0,4,0,6"
+                            Click="SW_LoadCategoryDatabase_Btn_Click"
+                            Content="加载数据库分类"
+                            FontSize="15 " />
                     </Grid>
                     <!--  第三行，管理员模块中的Grid.Row="2"  -->
-                    <Grid
-                        x:Name="CategoryDisplayGrid"
-                        Grid.Row="2"
+                    <Grid x:Name="SW_CategoryDisplayGrid"  Grid.Row="2"
                         Background="FloralWhite">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="2*" />
@@ -1457,18 +1456,34 @@ Background="FloralWhite">
                             <ColumnDefinition Width="3*" />
                         </Grid.ColumnDefinitions>
                         <!--  修改架构树的TreeView，添加右键菜单  -->
-                        <TreeView
-                            x:Name="CategoryTreeView"
-                            Grid.Column="0"
+                        <TreeView x:Name="SW_CategoryTreeView"  Grid.Column="0"
                             MinWidth="100"
                             MaxWidth="300"
                             Margin="0,0,-3,0"
-                            SelectedItemChanged="CategoryTreeView_SelectedItemChanged">
+                             SelectedItemChanged="SW_CategoryTreeView_SelectedItemChanged">
+                            <!-- SolidWorks 分类树专用右键菜单，不复用 CAD 规范树菜单。 -->
+                            <TreeView.ContextMenu>
+                                <ContextMenu Opened="SW_CategoryContextMenu_Opened">
+                                    <MenuItem Header="添加主分类" Click="SW_NewCategory_MenuItem_Click" />
+                                    <MenuItem Header="添加子分类" Click="SW_AddSubcategory_MenuItem_Click" />
+                                    <Separator />
+                                    <MenuItem Header="修改分类" Click="SW_Edit_MenuItem_Click" />
+                                    <MenuItem Header="删除分类" Click="SW_Delete_MenuItem_Click" />
+                                    <Separator />
+                                    <MenuItem Header="展开\折叠架构" Click="SW_展开_折叠架构_Click" />
+                                    <MenuItem Header="刷新架构树" Click="SW_刷新架构树按钮_Click" />
+                                </ContextMenu>
+                            </TreeView.ContextMenu>
                             <TreeView.ItemContainerStyle>
                                 <Style TargetType="{x:Type TreeViewItem}" />
                             </TreeView.ItemContainerStyle>
                             <TreeView.ItemTemplate>
                                 <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                    <HierarchicalDataTemplate.ItemContainerStyle>
+                                        <Style TargetType="TreeViewItem">
+                                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                        </Style>
+                                    </HierarchicalDataTemplate.ItemContainerStyle>
                                     <TextBlock
                                         HorizontalAlignment="Left"
                                         Text="{Binding DisplayText}"
@@ -1477,280 +1492,201 @@ Background="FloralWhite">
                             </TreeView.ItemTemplate>
                         </TreeView>
                         <!--  分割线  -->
-                        <GridSplitter
-                            Grid.Column="1"
+                        <GridSplitter x:Name="分割线" Grid.Column="1"
                             Width="5"
                             HorizontalAlignment="Stretch"
                             Background="LightGray" />
                         <!--  右侧：文件列表  -->
-                        <DataGrid
-                            x:Name="StroageFileDataGrid"
-                            Grid.Column="2"
-                            Margin="2,0,0,0"
-                            AutoGenerateColumns="False"
-                            CanUserAddRows="False"
-                            CanUserDeleteRows="False"
-                            FontSize="11"
-                            FontStyle="Normal"
-                            GridLinesVisibility="All"
-                            HeadersVisibility="Column"
-                            HorizontalScrollBarVisibility="Auto"
-                            Loaded="StroageFileDataGrid_Loaded"
-                            MouseDoubleClick="StroageFileDataGrid_MouseDoubleClick"
-                            SelectedCellsChanged="StroageFileDataGrid_SelectedCellsChanged"
-                            SelectionMode="Single"
-                            SelectionUnit="FullRow"
-                            TargetUpdated="StroageFileDataGrid_TargetUpdated"
-                            VerticalScrollBarVisibility="Auto">
-                            <DataGrid.Columns>
-                                <!--  文件名列 - 支持自动换行  -->
-                                <DataGridTextColumn
-                                    Width="*"
-                                    CanUserResize="True"
-                                    Header="文件名">
-                                    <DataGridTextColumn.ElementStyle>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="TextWrapping" Value="Wrap" />
-                                            <Setter Property="VerticalAlignment" Value="Center" />
-                                            <Setter Property="Margin" Value="0" />
-                                            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="ToolTip" Value="{Binding DisplayName}" />
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </DataGridTextColumn.ElementStyle>
-                                    <DataGridTextColumn.Binding>
-                                        <Binding Path="DisplayName" />
-                                    </DataGridTextColumn.Binding>
-                                </DataGridTextColumn>
-
-                                <!--  预览图片列  -->
-                                <DataGridTemplateColumn
-                                    Width="80"
-                                    CanUserResize="False"
-                                    Header="预览">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Grid>
-                                                <Image
-                                                    x:Name="PreviewImage"
-                                                    Width="80"
-                                                    Height="60"
-                                                    Loaded="PreviewImage_Loaded"
-                                                    Stretch="Uniform">
-                                                    <Image.Tag>
-                                                        <Binding Path="." />
-                                                    </Image.Tag>
-                                                </Image>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                            <!--  设置DataGrid的行样式  -->
+                        <!--  第五行 当前分类下所选统一构件的 SolidWorks 资源管理区。 -->
+                        <DataGrid x:Name="SW_StroageFileDataGrid"
+                                  Grid.Column="2 " Margin="0"
+                                  AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False"
+                                  GridLinesVisibility="All" HeadersVisibility="Column" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                  SelectionChanged="SW_StroageFileDataGrid_SelectionChanged"
+                                  SelectionMode="Single" SelectionUnit="FullRow"
+                                  HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" FontSize="12">
+                            <DataGrid.Resources>
+                                <ContextMenu x:Key="SW_ResourceRowContextMenu">
+                                    <MenuItem Header="刷新" Click="SW_AdminRefreshResources_Click" />
+                                    <Separator />
+                                    <MenuItem Header="更新模型" Click="SW_AdminUpdateModel_Click" />
+                                    <MenuItem Header="替换预览图" Click="SW_AdminReplacePreviewImage_Click" />
+                                    <MenuItem Header="上传/替换3D预览" Click="SW_AdminReplacePreview3D_Click" />
+                                    <MenuItem Header="预览图片" Click="SW_AdminPreviewImage_Click" />
+                                    <MenuItem Header="预览3D" Click="SW_AdminPreview3D_Click" />
+                                    <Separator />
+                                    <MenuItem Header="归档资源" Click="SW_AdminArchiveResource_Click" />
+                                    <MenuItem Header="删除图元" Click="SW_DeleteGraphic_Btn_Click" />
+                                </ContextMenu>
+                            </DataGrid.Resources>
                             <DataGrid.RowStyle>
                                 <Style TargetType="DataGridRow">
-                                    <Setter Property="Height" Value="70" />
-
+                                    <EventSetter Event="PreviewMouseRightButtonDown" Handler="SW_StroageFileDataGridRow_PreviewMouseRightButtonDown" />
+                                    <Setter Property="ContextMenu" Value="{StaticResource SW_ResourceRowContextMenu}" />
                                 </Style>
                             </DataGrid.RowStyle>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="资源名称" Binding="{Binding ResourceName}" Width="100" />
+                                <DataGridTextColumn Header="类型" Binding="{Binding ResourceType}" Width="90" />
+                                <DataGridTextColumn Header="配置" Binding="{Binding ConfigurationName}" Width="100" />
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="80" />
+                                <DataGridTextColumn Header="版本" Binding="{Binding Version}" Width="55" />
+                            </DataGrid.Columns>
                         </DataGrid>
                     </Grid>
                     <!--  第四行  -->
-                    <Grid
-                        Grid.Row="3"
-                        Height="155"
+                    <Grid x:Name="添加图元功能区" Grid.Row="3" 
                         Background="Azure">
-                        <Button
-                            Width="NaN"
-                            Height="22"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="5,3,257,127"
-                            Click="SelectFile_Btn_Click"
-                            FontSize="14">
-                            <TextBlock
-                                x:Name="addGraphice"
-                                FontSize="12"
-                                Text="选择图元文件" />
-                        </Button>
-                        <TextBox
-                            x:Name="filePath"
-                            Width="245"
-                            Height="20"
-                            Margin="90,0,0,129"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            AcceptsTab="True"
-                            BorderThickness="1,2,1,1"
-                            FontSize="8"
-                            SelectionOpacity="0.5"
-                            Style="{StaticResource WatermarkTextBoxStyle}"
-                            Tag="文件路径："
-                            TextWrapping="Wrap" />
-                        <Button
-                            Width="NaN"
-                            Height="22"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="5,28,257,105"
-                            Click="SelectViewImage_Btn_Click"
-                            FontSize="14">
-                            <TextBlock
-                                x:Name="delGraphice"
-                                FontSize="12"
-                                Text="选择预览图" />
-                        </Button>
-                        <TextBox
-                            x:Name="viewFilePath"
-                            Width="245"
-                            Height="20"
-                            Margin="90,0,0,106"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            AcceptsTab="True"
-                            BorderThickness="1,2,1,1"
-                            FontSize="8"
-                            SelectionOpacity="0.5"
-                            Style="{StaticResource WatermarkTextBoxStyle}"
-                            Tag="预览图文件路径："
-                            TextWrapping="Wrap" />
-                        <TextBox
-                            x:Name="FileName"
-                            Width="147"
-                            Height="20"
-                            Margin="90,0,0,83"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            AcceptsTab="True"
-                            BorderThickness="1,2,1,1"
-                            FontSize="10"
-                            SelectionOpacity="0.5"
-                            Style="{StaticResource WatermarkTextBoxStyle}"
-                            Tag="文件名称："
-                            TextWrapping="Wrap" />
-                        <TextBox
-                            x:Name="FileSize"
-                            Width="147"
-                            Height="20"
-                            Margin="90,0,0,60"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            AcceptsTab="True"
-                            BorderThickness="1,2,1,1"
-                            FontSize="10"
-                            SelectionOpacity="0.5"
-                            Style="{StaticResource WatermarkTextBoxStyle}"
-                            Tag="文件大小："
-                            TextWrapping="Wrap" />
-                        <TextBox
-                            x:Name="ClientVersion"
-                            Width="147"
-                            Height="20"
-                            Margin="90,0,0,36"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            AcceptsTab="True"
-                            BorderThickness="1,2,1,1"
-                            FontSize="10"
-                            SelectionOpacity="0.5"
-                            Style="{StaticResource WatermarkTextBoxStyle}"
-                            Tag="客户端版本号："
-                            TextWrapping="Wrap" />
-                        <Button
-                            x:Name="DeleteGraphicBtn"
-                            Width="NaN"
-                            Height="22"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="5,51,257,82"
-                            Click="DeleteGraphic_Btn_Click"
-                            Content="删除图元"
-                            FontSize="12" />
-                        <Button
-                            Width="70"
-                            Height="22"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="90,127,182,6"
-                            Click="ResetToInitial_Btn_Click"
-                            Content="还原初始值"
-                            FontSize="12" />
-                        <Button
-                            x:Name="ApplyPropertiesBtn"
-                            Width="70"
-                            Height="22"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="167,127,105,6"
-                            Click="ApplyProperties_Btn_Click"
-                            Content="应用属性"
-                            FontSize="12" />
-                        <Button
-                            x:Name="AddFileBtn"
-                            Width="NaN"
-                            Height="28"
-                            MaxWidth="200"
-                            MaxHeight="50"
-                            Margin="5,123,257,4"
-                            Background="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"
-                            Click="AddFile_Btn_Click"
-                            Content="完成添加"
-                            FontSize="14"
-                            Foreground="White" />
-                        <Button
-                            x:Name="ImportFromSelectionBtn"
-                            Width="80"
-                            Height="22"
-                            MaxWidth="80"
-                            MaxHeight="22"
-                            Margin="5,0,0,59"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            Click="ImportFromSelection_Btn_Click"
-                            Content="添加当前图形入库"
-                            FontSize="10" />
-                        <Button
-                            x:Name="上传客户端"
-                            Width="80"
-                            Height="22"
-                            MaxWidth="80"
-                            MaxHeight="22"
-                            Margin="5,0,0,36"
-                            HorizontalAlignment="Left"
-                            VerticalAlignment="Bottom"
-                            Click="上传客户端_Btn_Click"
-                            Content="上传客户端"
-                            FontSize="12" />
-                        <Image
-                            x:Name="ViewImage"
-                            Width="100"
-                            Height="100"
-                            Margin="239,52,3,3"
-                            Stretch="Uniform" />
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="155" />
+                            <RowDefinition Height="40" />
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0">
+                            <!-- 先选择分类下的统一构件，再执行模型和预览文件操作。 -->
+                            <TextBlock Text="统一构件："
+                                 Margin="13,7,0,0"
+                                 HorizontalAlignment="Left"
+                                 VerticalAlignment="Top"
+                                 FontSize="15"
+                                 Panel.ZIndex="20" />
+                            <ComboBox x:Name="SW_ElementSelectionComboBox"
+                                 Width="245"
+                                 Height="22"
+                                 Margin="91,6,0,0"
+                                 HorizontalAlignment="Left"
+                                 VerticalAlignment="Top"
+                                 Background="White"
+                                 Panel.ZIndex="20"
+                                 DisplayMemberPath="DisplayText"
+                                 SelectionChanged="SW_ElementSelectionComboBox_SelectionChanged" />
+                            <Button x:Name="选择图元文件" Content="选择图元文件"
+                                 Width="86"
+                                 Height="20"
+                                 Click="SW_SelectFile_Btn_Click"
+                                 FontSize="13" Margin="2,31,256,100" Padding="1,1,1,0" Grid.IsSharedSizeScope="True">
+                            </Button>
+                            <TextBox x:Name="SW_filePath"
+                                 Height="22"
+                                 Margin="91,31,8,0"
+                                 AcceptsTab="True"
+                                 BorderThickness="1,1,1,1"
+                                 FontSize="8"
+                                 SelectionOpacity="0.5"
+                                 Style="{StaticResource WatermarkTextBoxStyle}"
+                                 Tag="文件路径："
+                                 TextWrapping="Wrap" VerticalAlignment="Top" />
+                            <Button x:Name="选择预览图" Content="选择预览图" 
+                                 Width="86"
+                                 Height="20"
+                                 Margin="2,55,256,76"
+                                 Click="SelectViewImage_Btn_Click"
+                                 FontSize="14" />
+                            <TextBox x:Name="SW_viewFilePath"
+                                 Height="22"
+                                 Margin="91,55,8,0"
+                                 VerticalAlignment="Top"
+                                 AcceptsTab="True"
+                                 BorderThickness="1,2,1,1"
+                                 FontSize="8"
+                                 SelectionOpacity="0.5"
+                                 Style="{StaticResource WatermarkTextBoxStyle}"
+                                 Tag="预览图文件路径："
+                                 TextWrapping="Wrap" />
+                            <TextBox x:Name="SW_FileName"
+                                 Height="22"
+                                 Margin="91,79,8,0"
+                                 VerticalAlignment="Top"
+                                 AcceptsTab="True"
+                                 BorderThickness="1,2,1,1"
+                                 FontSize="10"
+                                 SelectionOpacity="0.5"
+                                 Style="{StaticResource WatermarkTextBoxStyle}"
+                                 Tag="文件名称："
+                                 TextWrapping="Wrap" />
+                            <TextBox x:Name="SW_FileSize"
+                                 Height="22"
+                                 Margin="91,103,8,0"
+                                 VerticalAlignment="Top"
+                                 IsReadOnly="True"
+                                 BorderThickness="1,2,1,1"
+                                 FontSize="10"
+                                 SelectionOpacity="0.5"
+                                 Style="{StaticResource WatermarkTextBoxStyle}"
+                                 Tag="文件类型："
+                                 TextWrapping="Wrap" />
+                            <TextBox x:Name="SW_ClientVersion"
+                                 Height="22"
+                                 Margin="91,127,8,0"
+                                 VerticalAlignment="Top"
+                                 BorderThickness="1,2,1,1"
+                                 FontSize="10"
+                                 SelectionOpacity="0.5"
+                                 Style="{StaticResource WatermarkTextBoxStyle}"
+                                  Tag="SolidWorks配置名/版本："
+                                 TextWrapping="Wrap" />
+                            <Button x:Name="SW_ImportFromSelectionBtn"
+                                Width="86"
+                                Height="20"
+                                Margin="2,0,0,54"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Bottom"
+                                Click="SW_ImportFromSelection_Btn_Click"
+                                Content="添加当前图形入库"
+                                FontSize="10" RenderTransformOrigin="0.5,0.5" >
+                                <Button.RenderTransform>
+                                    <TransformGroup>
+                                        <ScaleTransform/>
+                                        <SkewTransform/>
+                                        <RotateTransform Angle="0.049"/>
+                                        <TranslateTransform/>
+                                    </TransformGroup>
+                                </Button.RenderTransform>
+                            </Button>
+                            <TextBlock x:Name="文件类型" Text="文件类型："
+                                Margin="29,107,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Top"
+                                FontSize="13"
+                                Panel.ZIndex="20" FontWeight="Normal" />
+                            <TextBlock x:Name="配置名与版本" Text="配置名/版本："
+                                Margin="10,131,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Top"
+                                FontSize="13"
+                                Panel.ZIndex="20" FontWeight="Normal" />
+
+                        </Grid>
+
+                        <WrapPanel Grid.Row="1" Margin="0,0,0,0">
+                            <Button  Content="完成添加" x:Name="SW_AddFileBtn"  Width="86" Height="30"  Background="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" Click="SW_AddFile_Btn_Click"  FontSize="14" Foreground="White" Margin="0" HorizontalAlignment="Left" VerticalAlignment="Top" />
+                            <Button Content="刷新" Click="SW_AdminRefreshResources_Click" Height="20" Width="65" />
+                            <Button Content="还原初始值" x:Name="SW_ResetToInitialBtn" Margin="1,1,1,1"  Width="65" Height="20" Click="SW_ResetToInitial_Btn_Click"/>
+                            <Button Content="应用属性"  x:Name="SW_ApplyPropertiesBtn" Margin="1,1,1,1"  Width="65" Height="20" Click="SW_ApplyProperties_Btn_Click" />
+                        </WrapPanel>
 
                     </Grid>
-                    <Grid Grid.Row="4" Background="FloralWhite" />
-                    <Grid Grid.Row="5">
+
+                    <!--  第六行 图元属性表  -->
+                    <Grid x:Name="图元属性表" Grid.Row="4">
                         <ScrollViewer Margin="0,0,0,0" VerticalScrollBarVisibility="Auto">
                             <!--  属性编辑DataGrid  -->
-                            <DataGrid
-                                x:Name="CategoryPropertiesDataGrid"
-                                Grid.Row="0"
+                            <DataGrid x:Name="SW_CategoryPropertiesDataGrid"
                                 Margin="0"
                                 AutoGenerateColumns="False"
-                                CanUserAddRows="True"
-                                CanUserDeleteRows="True"
+                                CanUserAddRows="False"
+                                CanUserDeleteRows="False"
                                 FontSize="11"
                                 GridLinesVisibility="All"
-                                HeadersVisibility="Column">
+                                HeadersVisibility="Column" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
                                 <DataGrid.Columns>
-                                    <DataGridTemplateColumn Width="70" Header="属性名称1">
+                                    <DataGridTextColumn Width="90" Header="属性编码" Binding="{Binding PropertyCode}" IsReadOnly="True" />
+                                    <DataGridTextColumn Width="130" Header="属性名称" Binding="{Binding PropertyName}" IsReadOnly="True" />
+                                    <DataGridTextColumn Width="70" Header="类型" Binding="{Binding DataType}" IsReadOnly="True" />
+                                    <DataGridTextColumn Width="60" Header="单位" Binding="{Binding Unit}" IsReadOnly="True" />
+                                    <DataGridTemplateColumn Width="*" Header="属性值">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <TextBlock Text="{Binding PropertyName1}" />
+                                                <TextBlock Text="{Binding ValueText}" />
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                         <DataGridTemplateColumn.CellEditingTemplate>
@@ -1758,55 +1694,7 @@ Background="FloralWhite">
                                                 <TextBox
                                                     InputMethod.IsInputMethodEnabled="True"
                                                     Language="zh-CN"
-                                                    Text="{Binding PropertyName1, UpdateSourceTrigger=PropertyChanged}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellEditingTemplate>
-                                    </DataGridTemplateColumn>
-
-                                    <DataGridTemplateColumn Width="*" Header="值1">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding PropertyValue1}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                        <DataGridTemplateColumn.CellEditingTemplate>
-                                            <DataTemplate>
-                                                <TextBox
-                                                    InputMethod.IsInputMethodEnabled="True"
-                                                    Language="zh-CN"
-                                                    Text="{Binding PropertyValue1, UpdateSourceTrigger=PropertyChanged}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellEditingTemplate>
-                                    </DataGridTemplateColumn>
-
-                                    <DataGridTemplateColumn Width="70" Header="属性名称2">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding PropertyName2}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                        <DataGridTemplateColumn.CellEditingTemplate>
-                                            <DataTemplate>
-                                                <TextBox
-                                                    InputMethod.IsInputMethodEnabled="True"
-                                                    Language="zh-CN"
-                                                    Text="{Binding PropertyName2, UpdateSourceTrigger=PropertyChanged}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellEditingTemplate>
-                                    </DataGridTemplateColumn>
-
-                                    <DataGridTemplateColumn Width="*" Header="值2">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding PropertyValue2}" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                        <DataGridTemplateColumn.CellEditingTemplate>
-                                            <DataTemplate>
-                                                <TextBox
-                                                    InputMethod.IsInputMethodEnabled="True"
-                                                    Language="zh-CN"
-                                                    Text="{Binding PropertyValue2, UpdateSourceTrigger=PropertyChanged}" />
+                                                    Text="{Binding ValueText, UpdateSourceTrigger=PropertyChanged}" />
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellEditingTemplate>
                                     </DataGridTemplateColumn>
@@ -1814,23 +1702,37 @@ Background="FloralWhite">
                             </DataGrid>
                         </ScrollViewer>
                     </Grid>
+                    <!-- 管理员模块专用状态栏；原 TxtStatus 位于部门/人员模块，管理员页面无法看到查询结果。 -->
+                    <Border Grid.Row="5"
+                            Height="Auto"
+                            Margin="1,0,1,1"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Bottom"
+                            Background="#FFF7F9FC"
+                            Panel.ZIndex="10">
+                        <TextBlock x:Name="SW_AdminStatusText"
+                                   Margin="0"
+                                   Foreground="Gray"
+                                   Text="{Binding Text, ElementName=TxtStatus}"
+                                   TextWrapping="Wrap" />
+                    </Border>
                 </Grid>
             </TabItem>
             <!--  第四TabControlItem(部门_人员模块)  -->
-            <TabItem x:Name="SWDepartmentUsersModuleTab"
+            <TabItem x:Name="SW_DepartmentUsersModuleTab"
                 Width="105"
                 Header="部门\人员模块"
                 FontSize="14"
                 FontWeight="Bold"
                      Margin="0,0,0,0"  >
-                <Grid x:Name="部门_人员模块_Grid">
+                <Grid x:Name="SW_部门_人员模块_Grid">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*" />
                         <RowDefinition Height="2" />
                         <RowDefinition Height="1.5*" />
                     </Grid.RowDefinitions>
 
-                    <Grid Name="部门管理页面"
+                    <Grid Name="SW_部门管理页面"
                         Grid.Column="0"
                         Margin="0"
                         Background="#FFECECEC">
@@ -1840,7 +1742,7 @@ Background="FloralWhite">
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock x:Name="部门管理"
+                        <TextBlock x:Name="SW_部门管理"
                             Grid.Row="0"
                             Margin="0,5,0,5"
                             Background="{DynamicResource {x:Static SystemColors.ActiveCaptionBrushKey}}"
@@ -1853,31 +1755,31 @@ Background="FloralWhite">
                             HorizontalAlignment="Left"
                             Orientation="Horizontal">
                             <Button
-                                x:Name="BtnSync"
+                                x:Name="SW_BtnSync"
                                 Width="90"
                                 Margin="0,0,3,0"
-                                Click="BtnSync_Click"
+                                Click="SW_BtnSync_Click"
                                 Content="获取部门" />
                             <Button
-                                x:Name="BtnAddDept"
+                                x:Name="SW_BtnAddDept"
                                 Width="80"
                                 Margin="0,0,3,0"
-                                Click="BtnAddDept_Click"
+                                Click="SW_BtnAddDept_Click"
                                 Content="新增部门" />
                             <Button
-                                x:Name="BtnEditDept"
+                                x:Name="SW_BtnEditDept"
                                 Width="80"
                                 Margin="0,0,3,0"
-                                Click="BtnEditDept_Click"
+                                Click="SW_BtnEditDept_Click"
                                 Content="编辑部门" />
                             <Button
-                                x:Name="BtnDeleteDept"
+                                x:Name="SW_BtnDeleteDept"
                                 Width="80"
-                                Click="BtnDeleteDept_Click"
+                                Click="SW_BtnDeleteDept_Click"
                                 Content="删除部门" />
                         </StackPanel>
                         <DataGrid
-                            x:Name="DepartmentsGrid"
+                            x:Name="SW_DepartmentsGrid"
                             Grid.Row="2"
                             AutoGenerateColumns="False"
                             IsReadOnly="True"
@@ -1912,7 +1814,7 @@ Background="FloralWhite">
                         </DataGrid>
                     </Grid>
 
-                    <Grid x:Name="部门用户_分配_Grid" 
+                    <Grid x:Name="SW_部门用户_分配_Grid" 
                         Grid.Row="2"
                         Margin="0"
                         Background="#FFECECEC">
@@ -1923,46 +1825,46 @@ Background="FloralWhite">
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock x:Name="部门用户_分配"
+                        <TextBlock x:Name="SW_部门用户_分配"
                             Grid.Row="0"
                             Margin="0,5,0,5"
                             Background="{DynamicResource {x:Static SystemColors.ActiveCaptionBrushKey}}"
                             FontSize="14"
                             FontWeight="Bold"
                             Text=" 部门用户 / 分配" />
-                        <StackPanel x:Name="部门用户_分配_StackPanel"
+                        <StackPanel x:Name="SW_部门用户_分配_StackPanel"
                             Grid.Row="1"
                             Margin="0,0,0,0"
                             HorizontalAlignment="Left"
                             Orientation="Horizontal">
                             <Button
-                                x:Name="BtnRefresh"
+                                x:Name="SW_BtnRefresh"
                                 Width="80"
                                 Height="25"
                                 Margin="1,1,5,1"
-                                Click="BtnRefresh_Click"
+                                Click="SW_BtnRefresh_Click"
                                 Content="刷新" />
                             <Button
-                                x:Name="BtnAddUserManaged"
+                                x:Name="SW_BtnAddUserManaged"
                                 Width="80"
                                 Height="25"
                                 Margin="1,1,5,1"
                                 HorizontalContentAlignment="Left"
-                                Click="BtnAddUserManaged_Click"
+                                Click="SW_BtnAddUserManaged_Click"
                                 Content="增加人员" />
                             <Button
-                                x:Name="BtnEditUserManaged"
+                                x:Name="SW_BtnEditUserManaged"
                                 Width="80"
                                 Height="25"
                                 Margin="1,1,5,1"
-                                Click="BtnEditUserManaged_Click"
+                                Click="SW_BtnEditUserManaged_Click"
                                 Content="编辑人员" />
                             <Button
-                                x:Name="BtnDeleteUserManaged"
+                                x:Name="SW_BtnDeleteUserManaged"
                                 Width="80"
                                 Height="25"
                                 Margin="1,1,0,1"
-                                Click="BtnDeleteUserManaged_Click"
+                                Click="SW_BtnDeleteUserManaged_Click"
                                 Content="删除人员" />
                         </StackPanel>
 
@@ -1972,7 +1874,7 @@ Background="FloralWhite">
                             VerticalAlignment="Top"
                             Orientation="Horizontal">
                             <TextBox
-                                x:Name="TxtSearchUser"
+                                x:Name="SW_TxtSearchUser"
                                 Width="180"
                                 Margin="5,0,5,0"
                                 HorizontalAlignment="Center"
@@ -1981,21 +1883,21 @@ Background="FloralWhite">
                                 VerticalContentAlignment="Center"
                                 FontWeight="Normal"
                                  Text="输入用户名搜索/分配"
-                                 TextChanged="TxtSearchUser_TextChanged" />
+                                 TextChanged="SW_TxtSearchUser_TextChanged" />
                             <Button
-                                x:Name="BtnAssignUser"
+                                x:Name="SW_BtnAssignUser"
                                 Width="150"
                                 Height="20"
                                 Margin="2,1,1,1"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center"
-                                Click="BtnAssignUser_Click"
+                                Click="SW_BtnAssignUser_Click"
                                 Content="将用户分配到选中部门" />
                         </StackPanel>
 
                         <DataGrid
-                            x:Name="UsersGrid"
+                            x:Name="SW_UsersGrid"
                             Grid.Row="3"
                             AutoGenerateColumns="False"
                             IsReadOnly="True"

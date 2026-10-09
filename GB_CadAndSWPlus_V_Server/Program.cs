@@ -102,6 +102,12 @@ builder.Services.AddScoped<LayerDictionaryInitializationService>();
 builder.Services.AddScoped<LayerDictionaryService>();
 builder.Services.AddScoped<SystemConfigService>();
 builder.Services.AddScoped<SwInstanceService>();
+builder.Services.AddScoped<ElementDefinitionService>();
+builder.Services.AddScoped<ElementResourceService>();
+// 统一构件属性由服务器集中读写，CAD 与 SolidWorks 共用同一套属性值。
+builder.Services.AddScoped<ElementMetadataService>();
+// SolidWorks 模型和预览附件统一由服务器受控存储，客户端不直接访问物理路径。
+builder.Services.AddScoped<SolidWorksResourceService>();
 
 // 注册 SolidWorks 平台模板查询服务；模板附件元数据统一由服务器读取。
 builder.Services.AddScoped<SwPlatformTemplateService>();

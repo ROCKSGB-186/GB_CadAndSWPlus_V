@@ -20,6 +20,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
         public async Task<UnifiedLoginResult> LoginAsync(UnifiedLoginRequest request, CancellationToken cancellationToken = default(CancellationToken)) // 实现账号密码登录。
         {
             if (request == null) throw new ArgumentNullException(nameof(request)); // 防止调用方传入空登录请求。
+            SolidWorksFileLogger.Start("SolidWorks 统一账号登录");
             DateTime startedAt = DateTime.Now; // 记录本次登录开始时间，便于追踪每一步耗时。
             string url = BuildUrl(request.ServerHost, request.ApiPort, "api/auth/login"); // 根据登录页面配置构造登录地址。
             SolidWorksFileLogger.Info(string.Format("登录开始；服务器={0}；端口={1}；用户名={2}；接口={3}", request.ServerHost, request.ApiPort, request.Username, url)); // 记录登录开始，但不记录密码。
@@ -44,7 +45,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
                 LoginPayload payload = Deserialize<LoginPayload>(body); // 使用与 CAD 相同的 JSON 规则反序列化服务端登录结果。
                 if (!payload.Success) throw new InvalidOperationException(string.IsNullOrWhiteSpace(payload.Message) ? "用户名或密码错误。" : payload.Message); // 处理业务登录失败。
                 SolidWorksFileLogger.Info("服务器认证成功，开始解析用户和会话信息。"); // 记录认证成功步骤。
-                return new UnifiedLoginResult // 将服务端结果转换为共享登录结果。
+                UnifiedLoginResult result = new UnifiedLoginResult // 将服务端结果转换为共享登录结果。
                 {
                     Success = true, // 标记登录成功。
                     Message = payload.Message ?? "登录成功。", // 设置登录结果消息。
@@ -56,6 +57,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
                     AccessTokenExpiresAtUtc = ParseServerDate(payload.AccessTokenExpiresAtUtc), // 兼容 .NET 8 返回的 ISO 8601 日期。
                     PlatformSession = request.Username ?? string.Empty // 保存 SolidWorks 平台会话标识。
                 }; // 返回统一登录结果。
+                SolidWorksFileLogger.Complete("SolidWorks 统一账号登录");
+                return result;
             }
             }
         }
@@ -63,12 +66,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
         /// <summary>使用共享会话重新登录 SolidWorks。</summary>
         public Task<UnifiedLoginResult> LoginWithSharedSessionAsync(SharedLoginSession session, CancellationToken cancellationToken = default(CancellationToken)) // 实现共享会话登录接口。
         {
+            SolidWorksFileLogger.Start("使用共享会话登录 SolidWorks");
             UnifiedLoginRequest request = new SharedLoginSessionStore().ToLoginRequest(session, UnifiedLoginPlatform.SolidWorks); // 将共享会话转换为 SolidWorks 登录请求。
+            SolidWorksFileLogger.Info("共享会话已转换为 SolidWorks 登录请求；敏感认证字段不写入日志。");
             return LoginAsync(request, cancellationToken); // 复用账号登录流程。
         }
 
         private static DateTime? ParseServerDate(string value) // 兼容 .NET 8 ISO 8601 与旧 .NET /Date(...)\/ 日期格式。
         {
+            SolidWorksFileLogger.Info("解析 SolidWorks 登录会话过期时间。");
             if (string.IsNullOrWhiteSpace(value))
                 return null;
 
@@ -92,6 +98,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
         /// <summary>从统一服务器读取部门列表，保证 CAD、SolidWorks 和未来 Revit 使用同一份部门数据。</summary>
         public Task<IReadOnlyList<UnifiedDepartmentOption>> LoadDepartmentsAsync(UnifiedLoginRequest request, CancellationToken cancellationToken = default(CancellationToken)) // 实现部门加载接口。
         {
+            SolidWorksFileLogger.Start("加载 SolidWorks 登录部门列表");
             return LoadDepartmentsCoreAsync(request, cancellationToken); // 复用统一部门接口，不在 SolidWorks 客户端维护第二套部门数据。
         }
 
@@ -123,12 +130,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
                 }
 
                 SolidWorksFileLogger.Info("统一部门列表读取完成；有效部门数量=" + departments.Count + "。"); // 记录数量，不记录部门敏感数据。
+                SolidWorksFileLogger.Complete("加载 SolidWorks 登录部门列表；数量=" + departments.Count);
                 return departments;
             }
         }
 
         private static string BuildUrl(string host, int port, string path) // 构造服务端 API 地址。
         {
+            SolidWorksFileLogger.Info("构造 SolidWorks API 地址；端口=" + port + "；路径=" + path + "。");
             string normalizedHost = host?.Trim() ?? string.Empty; // 清理主机地址首尾空格。
             if (!normalizedHost.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !normalizedHost.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) normalizedHost = "http://" + normalizedHost; // 没有协议时使用 HTTP 默认协议。
             if (!Uri.TryCreate(normalizedHost, UriKind.Absolute, out Uri baseUri) || (baseUri.Scheme != Uri.UriSchemeHttp && baseUri.Scheme != Uri.UriSchemeHttps)) throw new InvalidOperationException("服务器地址无效，请填写 IP 或主机名。"); // 先验证输入，避免生成错误请求地址。
@@ -138,11 +147,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
 
         private static string Serialize(LoginRequest request) // 序列化登录请求，避免手工拼接 JSON 导致特殊密码字符失真。
         {
+            SolidWorksFileLogger.Info("序列化 SolidWorks 登录请求；密码字段不写入日志。");
             return JsonConvert.SerializeObject(request); // 与 CAD 端一致处理密码中的引号、反斜杠和控制字符。
         }
 
         private static string ExtractMessage(string json) // 从服务器错误响应中提取中文原因，不暴露密码等敏感信息。
         {
+            SolidWorksFileLogger.Info("解析 SolidWorks 服务器错误提示。");
             try
             {
                 LoginPayload payload = Deserialize<LoginPayload>(json); // 尝试读取服务器统一错误结构。
@@ -156,6 +167,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
 
         private static T Deserialize<T>(string json) where T : class // 使用 .NET Framework 内置序列化器读取服务端 JSON。
         {
+            SolidWorksFileLogger.Info("反序列化 SolidWorks 服务器响应；响应正文不写入日志。");
             return JsonConvert.DeserializeObject<T>(json ?? string.Empty) ?? throw new InvalidOperationException("服务器返回空响应。格式不符合统一接口约定。"); // DateTime 字段按服务端 ISO 8601 格式兼容解析。
         }
 

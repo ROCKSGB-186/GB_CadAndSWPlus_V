@@ -24,21 +24,29 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         public SolidWorksAdministrationView()
         {
+            SolidWorksFileLogger.Start("初始化 SolidWorks 管理视图");
             InitializeComponent();
             SetAuthenticationState(false);
+            SolidWorksFileLogger.Complete("初始化 SolidWorks 管理视图");
         }
 
-        private void UserControl_Loaded(object sender, RoutedEventArgs e) => SelectModule();
+        private void UserControl_Loaded(object sender, RoutedEventArgs e)
+        {
+            SolidWorksFileLogger.Info("SolidWorks 管理视图加载完成。");
+            SelectModule();
+        }
 
         private void SelectModule()
         {
-            if (AdministrationTabControl == null) return;
+            SolidWorksFileLogger.Info("选择 SolidWorks 管理视图模块：" + Module + "。");
+            if (AdministrationTabControl == null) { SolidWorksFileLogger.Skipped("选择 SolidWorks 管理视图模块", "标签控件尚未初始化"); return; }
             AdministrationTabControl.SelectedIndex = Module == "管理员模块" ? 1 : Module == "部门\\人员模块" ? 2 : 0;
         }
 
         /// <summary>设置统一登录上下文并刷新管理数据。</summary>
         public async void SetAuthenticationState(bool authenticated)
         {
+            SolidWorksFileLogger.Info("设置 SolidWorks 管理视图认证状态；状态=" + (authenticated ? "已登录" : "未登录") + "。");
             if (!authenticated)
             {
                 Visibility = Visibility.Collapsed;
@@ -63,6 +71,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private async Task RefreshAsync()
         {
+            SolidWorksFileLogger.Start("刷新 SolidWorks 管理数据");
             try
             {
                 SolidWorksDepartmentResponse response = await _api.GetDepartmentsAsync();
@@ -70,18 +79,25 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 AdminDepartmentsGrid.ItemsSource = _departments;
                 DepartmentsGrid.ItemsSource = _departments;
                 SettingsStatusText.Text = "管理数据已刷新：部门数量=" + _departments.Count;
+                SolidWorksFileLogger.Complete("刷新 SolidWorks 管理数据；部门数量=" + _departments.Count);
             }
             catch (Exception ex)
             {
+                SolidWorksFileLogger.Failed("刷新 SolidWorks 管理数据", ex);
                 SolidWorksFileLogger.Warning("SolidWorks 管理数据刷新失败：" + ex.Message);
                 SettingsStatusText.Text = "管理数据刷新失败：" + ex.Message;
             }
         }
 
-        private async void RefreshDepartments_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
+        private async void RefreshDepartments_Click(object sender, RoutedEventArgs e)
+        {
+            SolidWorksFileLogger.Info("点击刷新 SolidWorks 部门按钮。");
+            await RefreshAsync();
+        }
 
         private async void DepartmentsGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            SolidWorksFileLogger.Info("SolidWorks 部门选择发生变化。");
             SolidWorksDepartmentModel department = DepartmentsGrid.SelectedItem as SolidWorksDepartmentModel;
             if (department == null || _api == null) return;
             try
@@ -98,9 +114,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private async void AddDepartment_Click(object sender, RoutedEventArgs e)
         {
-            if (!_isAdministrator || _api == null) return;
+            SolidWorksFileLogger.Start("新增 SolidWorks 管理部门");
+            if (!_isAdministrator || _api == null) { SolidWorksFileLogger.Skipped("新增 SolidWorks 管理部门", "当前账号无管理员权限或 API 未初始化"); return; }
             string name = PromptForDepartmentName();
-            if (string.IsNullOrWhiteSpace(name)) return;
+            if (string.IsNullOrWhiteSpace(name)) { SolidWorksFileLogger.Skipped("新增 SolidWorks 管理部门", "用户取消或未填写部门名称"); return; }
             SolidWorksMutationResult result = await _api.AddDepartmentAsync(name.Trim(), name.Trim(), string.Empty, _departments.Count + 1);
             MessageBox.Show(result.Success ? "部门新增成功。" : "部门新增失败：" + result.Message, "部门管理", MessageBoxButton.OK, result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
             if (result.Success) await RefreshAsync();
@@ -108,6 +125,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private static string PromptForDepartmentName()
         {
+            SolidWorksFileLogger.Info("显示 SolidWorks 新增部门输入窗口。");
             var dialog = new Window
             {
                 Title = "新增部门",
@@ -129,9 +147,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private async void DeleteDepartment_Click(object sender, RoutedEventArgs e)
         {
+            SolidWorksFileLogger.Start("删除 SolidWorks 管理部门");
             SolidWorksDepartmentModel department = AdminDepartmentsGrid.SelectedItem as SolidWorksDepartmentModel;
-            if (!_isAdministrator || department == null || _api == null) return;
-            if (MessageBox.Show("确认删除部门“" + department.DisplayName + "”？", "部门管理", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            if (!_isAdministrator || department == null || _api == null) { SolidWorksFileLogger.Skipped("删除 SolidWorks 管理部门", "权限、API 或部门选择不满足条件"); return; }
+            if (MessageBox.Show("确认删除部门“" + department.DisplayName + "”？", "部门管理", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) { SolidWorksFileLogger.Skipped("删除 SolidWorks 管理部门", "用户取消确认"); return; }
             SolidWorksMutationResult result = await _api.DeleteDepartmentAsync(department.Id);
             MessageBox.Show(result.Success ? "部门删除成功。" : "部门删除失败：" + result.Message, "部门管理", MessageBoxButton.OK, result.Success ? MessageBoxImage.Information : MessageBoxImage.Warning);
             if (result.Success) await RefreshAsync();
@@ -139,15 +158,18 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private async void SaveSystemConfig_Click(object sender, RoutedEventArgs e)
         {
-            if (_api == null) { SettingsStatusText.Text = "请先登录统一平台。"; return; }
+            SolidWorksFileLogger.Start("保存 SolidWorks 系统配置");
+            if (_api == null) { SettingsStatusText.Text = "请先登录统一平台。"; SolidWorksFileLogger.Skipped("保存 SolidWorks 系统配置", "尚未登录"); return; }
             try
             {
                 await _api.SetConfigAsync("server_version", ServerVersionTextBox.Text);
                 await _api.SetConfigAsync("client_version", ClientVersionTextBox.Text);
                 SettingsStatusText.Text = "系统配置保存成功。";
+                SolidWorksFileLogger.Complete("保存 SolidWorks 系统配置");
             }
             catch (Exception ex)
             {
+                SolidWorksFileLogger.Failed("保存 SolidWorks 系统配置", ex);
                 SolidWorksFileLogger.Warning("SolidWorks 系统配置保存失败：" + ex.Message);
                 SettingsStatusText.Text = "系统配置保存失败：" + ex.Message;
             }
