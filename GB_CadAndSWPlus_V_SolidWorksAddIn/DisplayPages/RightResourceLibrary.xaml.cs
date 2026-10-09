@@ -32,7 +32,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             SolidWorksFileLogger.Start("初始化 SolidWorks 右侧资源库控件");
             InitializeComponent();
             // 先初始化 WebView2，后续通过虚拟主机加载本地 HTML 和 GLB/GLTF，避免 file:// 路径访问失败。
-            _ = InitializeThreeDPreviewAsync();
+            _ = InitializeThreeDPreviewAsync(false);
             // 控件刚创建时先按未登录状态显示遮罩，避免 XCAD 延迟触发认证初始化时业务页面先显示。
             SetAuthenticationState(false);
             // 版本号控件已迁移到“工具设置-系统设置”页面，使用迁移后的控件名称读取并更新版本信息。
@@ -49,6 +49,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private SolidWorksResourceApiService.ResourceDto _selectedSolidWorksResource;
         private Task _solidWorksThreeDPreviewInitializationTask;
+        private Task _solidWorksAdminThreeDPreviewInitializationTask;
 
         private void EnsureSolidWorksResourceApi()
         {
@@ -57,39 +58,67 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         }
 
         /// <summary>初始化 WebView2 三维预览宿主；运行环境没有 WebView2 时仅禁用三维预览。</summary>
-        private async Task InitializeThreeDPreviewAsync()
+        private async Task InitializeThreeDPreviewAsync(bool administratorPreview = false)
         {
-            if (_solidWorksThreeDPreviewInitializationTask != null)
+            Task initializationTask = administratorPreview
+                ? _solidWorksAdminThreeDPreviewInitializationTask
+                : _solidWorksThreeDPreviewInitializationTask;
+            if (initializationTask != null)
             {
-                await _solidWorksThreeDPreviewInitializationTask;
-                return;
+                try
+                {
+                    await initializationTask;
+                    if (GetThreeDPreviewHost(administratorPreview).CoreWebView2 != null)
+                        return;
+                }
+                catch (Exception ex)
+                {
+                    SolidWorksFileLogger.Warning("等待 SolidWorks 三维预览初始化失败，将重试：" + ex.Message);
+                }
             }
 
-            _solidWorksThreeDPreviewInitializationTask = InitializeThreeDPreviewHostsAsync();
-            await _solidWorksThreeDPreviewInitializationTask;
+            initializationTask = InitializeThreeDPreviewHostAsync(administratorPreview);
+            if (administratorPreview)
+                _solidWorksAdminThreeDPreviewInitializationTask = initializationTask;
+            else
+                _solidWorksThreeDPreviewInitializationTask = initializationTask;
+
+            try
+            {
+                await initializationTask;
+            }
+            catch (Exception ex)
+            {
+                SetThreeDPreviewInitializationTask(administratorPreview, null);
+                SolidWorksFileLogger.Warning("初始化 SolidWorks 三维预览失败：" + ex.Message);
+                throw;
+            }
+
+            if (GetThreeDPreviewHost(administratorPreview).CoreWebView2 == null)
+            {
+                SetThreeDPreviewInitializationTask(administratorPreview, null);
+                throw new InvalidOperationException("SolidWorks 三维预览 WebView2 未完成初始化。" );
+            }
         }
 
-        private async Task InitializeThreeDPreviewHostsAsync()
+        private Microsoft.Web.WebView2.Wpf.WebView2 GetThreeDPreviewHost(bool administratorPreview)
         {
-            try
-            {
-                await SW_ThreeDPreviewHost.EnsureCoreWebView2Async();
-                SW_ThreeDPreviewHost.NavigateToString("<html><body style='background:#111;color:#ddd'>请选择 SolidWorks 资源后预览三维模型。</body></html>");
-            }
-            catch (Exception ex)
-            {
-                SolidWorksFileLogger.Warning("初始化 SolidWorks 公用图元三维预览失败：" + ex.Message);
-            }
+            return administratorPreview ? SW_资源ThreeDPreviewHost : SW_ThreeDPreviewHost;
+        }
 
-            try
-            {
-                await SW_资源ThreeDPreviewHost.EnsureCoreWebView2Async();
-                SW_资源ThreeDPreviewHost.NavigateToString("<html><body style='background:#111;color:#ddd'>请选择 SolidWorks 资源后预览三维模型。</body></html>");
-            }
-            catch (Exception ex)
-            {
-                SolidWorksFileLogger.Warning("初始化 SolidWorks 管理员三维预览失败：" + ex.Message);
-            }
+        private void SetThreeDPreviewInitializationTask(bool administratorPreview, Task task)
+        {
+            if (administratorPreview)
+                _solidWorksAdminThreeDPreviewInitializationTask = task;
+            else
+                _solidWorksThreeDPreviewInitializationTask = task;
+        }
+
+        private async Task InitializeThreeDPreviewHostAsync(bool administratorPreview)
+        {
+            Microsoft.Web.WebView2.Wpf.WebView2 previewHost = GetThreeDPreviewHost(administratorPreview);
+            await previewHost.EnsureCoreWebView2Async();
+            previewHost.NavigateToString("<html><body style='background:#111;color:#ddd'>请选择 SolidWorks 资源后预览三维模型。</body></html>");
         }
 
         /// <summary>读取当前已加载 SolidWorks 插件 DLL 的程序集版本号。</summary>

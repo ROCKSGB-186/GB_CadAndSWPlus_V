@@ -36,6 +36,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly SolidWorksLocalCacheService _solidWorksLocalCache = new SolidWorksLocalCacheService();
         private List<SolidWorksResourceApiService.ElementDto> _solidWorksElementsByCategory = new List<SolidWorksResourceApiService.ElementDto>();
         private SolidWorksResourceApiService.ElementDto _selectedSolidWorksElement;
+        private bool _loadingSolidWorksPublicResource;
         private Point _solidWorksButtonDragStartPoint;
         private object _drawingMouseObject;
         private DMouseEvents_MouseSelectNotifyEventHandler _drawingMouseSelectHandler;
@@ -880,7 +881,6 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     return;
                 }
 
-                SW_StroageFileDataGrid.ItemsSource = response.Resources;
                 SolidWorksResourceApiService.ResourceDto resource = response.Resources.FirstOrDefault();
                 if (resource == null)
                 {
@@ -1008,9 +1008,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 : "已选择统一构件 ID=" + _selectedSolidWorksElement.Id + "。现在可以上传或更新 SolidWorks 图元。";
             if (_selectedSolidWorksElement != null)
             {
-                _ = RefreshAdminSolidWorksResourcesAsync();
-                _ = RefreshSolidWorksPropertiesAsync(_selectedSolidWorksElement.Id);
+                _ = LoadAdminElementDataAsync(_selectedSolidWorksElement.Id);
             }
+        }
+
+        /// <summary>管理员选择统一构件后按固定顺序加载资源列表和共用属性，避免异步请求互相覆盖界面。</summary>
+        private async Task LoadAdminElementDataAsync(long elementId)
+        {
+            await RefreshAdminSolidWorksResourcesAsync(elementId);
+            await RefreshSolidWorksPropertiesAsync(elementId);
         }
 
         /// <summary>加载当前统一构件的共用属性，供 CAD 与 SolidWorks 共同使用。</summary>
@@ -1035,13 +1041,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
         }
 
-        private async Task RefreshAdminSolidWorksResourcesAsync()
+        private async Task RefreshAdminSolidWorksResourcesAsync(long? elementId = null)
         {
-            if (_selectedSolidWorksElement == null || !_solidWorksAdministrator) return;
+            long selectedElementId = elementId ?? _selectedSolidWorksElement?.Id ?? 0;
+            if (selectedElementId <= 0 || !_solidWorksAdministrator) return;
             try
             {
                 _solidWorksResourceApi = _solidWorksResourceApi ?? new SolidWorksResourceApiService(new SharedLoginSessionStore().Load());
-                SolidWorksResourceApiService.ResourceListResponse response = await _solidWorksResourceApi.ListAsync(_selectedSolidWorksElement.Id);
+                SolidWorksResourceApiService.ResourceListResponse response = await _solidWorksResourceApi.ListAsync(selectedElementId);
                 if (!response.Success)
                 {
                     TxtStatus.Text = "资源查询失败：" + response.Message;
@@ -1080,7 +1087,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private async Task LoadAdminSolidWorksPreviewAsync(SolidWorksResourceApiService.ResourceDto resource)
         {
             await RefreshSolidWorksPropertiesAsync(resource.ElementDefinitionId);
-            await InitializeThreeDPreviewAsync();
+            await InitializeThreeDPreviewAsync(true);
             await Task.WhenAll(
                 LoadSolidWorksPreviewImageAsync(resource.Id, true),
                 LoadSolidWorksPreview3DAsync(resource.Id, true));
