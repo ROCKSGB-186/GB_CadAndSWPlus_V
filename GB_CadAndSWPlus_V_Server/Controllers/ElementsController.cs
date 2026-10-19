@@ -29,8 +29,9 @@ public sealed class ElementsController : ControllerBase
         [FromQuery] string? platform,
         [FromQuery] string? keyword,
         [FromQuery] string? status,
+        [FromQuery] bool requireResource,
         CancellationToken cancellationToken)
-        => _service.ListAsync(categoryId, platform, keyword, status, cancellationToken);
+        => _service.ListAsync(categoryId, platform, keyword, status, requireResource, cancellationToken);
 
     [HttpGet("{id:long}")]
     public async Task<ActionResult<ElementDefinitionResponse>> GetAsync(long id, CancellationToken cancellationToken)

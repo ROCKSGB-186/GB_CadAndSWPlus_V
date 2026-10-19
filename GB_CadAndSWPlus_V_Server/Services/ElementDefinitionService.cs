@@ -22,6 +22,7 @@ public sealed class ElementDefinitionService
         string? platform,
         string? keyword,
         string? status,
+        bool requireResource,
         CancellationToken cancellationToken)
     {
         string type = GetDatabaseType();
@@ -49,11 +50,11 @@ public sealed class ElementDefinitionService
             parameters.Add("Status", status.Trim().ToUpperInvariant());
         }
 
-        // SolidWorks/CAD 共用图元定义，但平台资源不同；查询 SolidWorks 时只返回已绑定 SolidWorks 模型资源的图元。
         if (!string.IsNullOrWhiteSpace(platform))
         {
-            conditions.Add($"EXISTS (SELECT 1 FROM {resourceTable} r WHERE r.element_definition_id = e.id AND r.platform = {prefix}Platform)");
             parameters.Add("Platform", platform.Trim().ToUpperInvariant());
+            if (requireResource || !string.Equals(platform.Trim(), "SOLIDWORKS", StringComparison.OrdinalIgnoreCase))
+                conditions.Add($"EXISTS (SELECT 1 FROM {resourceTable} r WHERE r.element_definition_id = e.id AND r.platform = {prefix}Platform)");
         }
 
         string where = conditions.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", conditions);

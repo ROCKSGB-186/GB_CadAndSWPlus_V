@@ -8,13 +8,13 @@
     <!-- 启用 Nullable 引用类型检查 -->
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- 启用隐式 using -->
-    <Version>3.26.1009.173</Version>
+    <Version>3.26.1011.177</Version>
     <!-- 程序集语义版本号（可根据发布流程变更） -->
-    <AssemblyVersion>3.26.1009.173</AssemblyVersion>
+    <AssemblyVersion>3.26.1011.177</AssemblyVersion>
     <!-- 程序集版本（建议随重大变更更新） -->
-    <FileVersion>3.26.1009.173</FileVersion>
+    <FileVersion>3.26.1011.177</FileVersion>
     <!-- 文件版本（便于发布包/部署查看） -->
-    <InformationalVersion>3.26.1009.173</InformationalVersion>
+    <InformationalVersion>3.26.1011.177</InformationalVersion>
     <OutputType>Exe</OutputType>
     <!-- 可包含 Git SHA 或语义版本扩展 -->
   </PropertyGroup>
@@ -24,6 +24,8 @@
     <None Remove="Resources\Standards\**\*.sql" />
     <None Remove="Resources\Standards\**\*.md" />
     <None Include="Resources\Standards\element_resource_attachments_schema_dm.sql" />
+    <None Include="Resources\Standards\upgrade_element_resource_display_name_dm.sql" />
+    <None Include="Resources\Standards\upgrade_element_resource_display_name_mysql.sql" />
     <None Include="web.config">
       <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </None>
@@ -31,11 +33,11 @@
 
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.21.0" />
-    <PackageReference Include="Dapper" Version="2.1.66" />
+    <PackageReference Include="Dapper" Version="2.1.89" />
     <PackageReference Include="DM.DmProvider" Version="8.3.1.47463" />
-    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="3.1.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="3.2.0" />
     <PackageReference Include="MySql.Data" Version="9.7.0" />
-    <PackageReference Include="NPOI" Version="2.8.0" />
+    <PackageReference Include="NPOI" Version="2.8.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 

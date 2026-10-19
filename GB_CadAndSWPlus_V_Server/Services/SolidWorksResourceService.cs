@@ -22,7 +22,7 @@ public sealed class SolidWorksResourceService
         _resourceService = resourceService ?? throw new ArgumentNullException(nameof(resourceService));
     }
 
-    public async Task<ElementResourceResponse> UploadModelAsync(long elementId, IFormFile file, string? resourceName, string? configurationName, string operatorName, CancellationToken cancellationToken)
+    public async Task<ElementResourceResponse> UploadModelAsync(long elementId, IFormFile file, string? resourceName, string? displayName, string? configurationName, string operatorName, CancellationToken cancellationToken)
     {
         if (elementId <= 0) throw new ArgumentOutOfRangeException(nameof(elementId), "构件 ID 必须大于 0。");
         if (file == null || file.Length == 0) throw new ArgumentException("SolidWorks 模型文件不能为空。", nameof(file));
@@ -48,6 +48,7 @@ public sealed class SolidWorksResourceService
             Platform = "SOLIDWORKS",
             ResourceType = extension == ".sldasm" ? "SLDASM" : "SLDPRT",
             ResourceName = string.IsNullOrWhiteSpace(resourceName) ? Path.GetFileNameWithoutExtension(file.FileName) : resourceName,
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? (string.IsNullOrWhiteSpace(resourceName) ? Path.GetFileNameWithoutExtension(file.FileName) : resourceName) : displayName,
             ResourcePath = relativePath,
             FileHash = hash,
             ConfigurationName = configurationName,
@@ -94,7 +95,7 @@ public sealed class SolidWorksResourceService
     }
 
     /// <summary>替换现有 SolidWorks 资源的模型文件，保持资源 ID 不变。</summary>
-    public async Task<ElementResourceResponse> ReplaceModelAsync(long resourceId, IFormFile file, string? resourceName, string? configurationName, string operatorName, CancellationToken cancellationToken)
+    public async Task<ElementResourceResponse> ReplaceModelAsync(long resourceId, IFormFile file, string? resourceName, string? displayName, string? configurationName, string operatorName, CancellationToken cancellationToken)
     {
         if (resourceId <= 0) throw new ArgumentOutOfRangeException(nameof(resourceId), "资源 ID 必须大于 0。");
         if (file == null || file.Length == 0) throw new ArgumentException("SolidWorks 模型文件不能为空。", nameof(file));
@@ -122,6 +123,7 @@ public sealed class SolidWorksResourceService
             Platform = "SOLIDWORKS",
             ResourceType = extension == ".sldasm" ? "SLDASM" : "SLDPRT",
             ResourceName = string.IsNullOrWhiteSpace(resourceName) ? Path.GetFileNameWithoutExtension(file.FileName) : resourceName,
+            DisplayName = string.IsNullOrWhiteSpace(displayName) ? current.Resource.DisplayName : displayName,
             ResourcePath = relativePath,
             FileHash = hash,
             ConfigurationName = configurationName,

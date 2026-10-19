@@ -601,6 +601,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Controllers
         /// 当前统一入口由 GraphicsQueryController 提供：GET /api/graphics/{id}/file。
         /// 保留本方法供历史兼容路由复用，避免与新控制器注册重复路由。
         /// </summary>
+        [NonAction]
         public async Task<IActionResult> DownloadGraphicFileAsync([FromRoute] int storageId)
         {
             var row = await GetStorageRowAsync(storageId); // 从数据库查询文件记录

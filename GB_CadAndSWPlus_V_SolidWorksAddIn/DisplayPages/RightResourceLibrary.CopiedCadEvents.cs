@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Runtime.InteropServices;
 using GB_CadAndSWPlus_V.Shared.Models;
 using GB_CadAndSWPlus_V.Shared.Services;
@@ -34,9 +35,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private bool _solidWorksAdministrator;
         private SolidWorksResourceApiService _solidWorksResourceApi;
         private readonly SolidWorksLocalCacheService _solidWorksLocalCache = new SolidWorksLocalCacheService();
-        private List<SolidWorksResourceApiService.ElementDto> _solidWorksElementsByCategory = new List<SolidWorksResourceApiService.ElementDto>();
         private SolidWorksResourceApiService.ElementDto _selectedSolidWorksElement;
         private bool _loadingSolidWorksPublicResource;
+        private DispatcherTimer _solidWorksPublicElementClickTimer;
+        private SolidWorksModelButtonTag _pendingSolidWorksPublicElementClick;
+        private bool _suppressNextSolidWorksPublicElementClick;
+        private DateTime _suppressSolidWorksPublicElementClickUntil;
         private Point _solidWorksButtonDragStartPoint;
         private object _drawingMouseObject;
         private DMouseEvents_MouseSelectNotifyEventHandler _drawingMouseSelectHandler;
@@ -95,6 +99,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private string GetAssemblyInstanceBaseName(SolidWorksResourceApiService.ResourceDto resource, string cachePath)
         {
+            if (!string.IsNullOrWhiteSpace(resource.DisplayName))
+                return resource.DisplayName.Trim();
             string originalFileName = Path.GetFileName(resource.OriginalFileName ?? string.Empty).Trim();
             string name = Path.GetFileNameWithoutExtension(originalFileName);
             if (string.IsNullOrWhiteSpace(name))
@@ -166,8 +172,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     });
                 }
 
+                // 子分类加载完成后，将该分类下的统一构件作为树节点加入，支持首次上传还没有 SolidWorks 资源的构件。
+                _solidWorksResourceApi = _solidWorksResourceApi ?? new SolidWorksResourceApiService(new SharedLoginSessionStore().Load());
+                foreach (SolidWorksCategoryNode childCategory in _solidWorksCategoryNodes.SelectMany(node => node.Children).ToList())
+                    await LoadSolidWorksElementsIntoCategoryAsync(childCategory);
+
                 foreach (SolidWorksCategoryNode node in _solidWorksCategoryNodes)
-                    node.Children = node.Children.OrderBy(child => child.SortOrder).ToList();
+                    node.Children = node.Children.OrderBy(child => child.SortOrder).ThenBy(child => child.IsElement ? 1 : 0).ToList();
                 _solidWorksCategoryNodes = _solidWorksCategoryNodes.OrderBy(node => node.SortOrder).ToList();
                 SW_CategoryTreeView.ItemsSource = _solidWorksCategoryNodes;
                 // 分类树加载完成后，同时刷新公用图元按钮；按钮和管理员模块共用同一套分类 ID。
@@ -280,15 +291,28 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (category == null || category.Id <= 0 || targetPanel == null) return 0;
 
             SolidWorksResourceApiService.ElementListResponse response =
-                await _solidWorksResourceApi.ListElementsByCategoryAsync(category.Id);
+                await _solidWorksResourceApi.ListElementsByCategoryAsync(category.Id, true);
             if (!response.Success)
             {
                 SolidWorksFileLogger.Warning("SolidWorks 分类图元查询失败；分类ID=" + category.Id + "；消息=" + response.Message);
                 return 0;
             }
 
-            List<SolidWorksResourceApiService.ElementDto> elements = response.Elements ?? new List<SolidWorksResourceApiService.ElementDto>();
-            if (elements.Count == 0) return 0;
+            List<SolidWorksModelButtonTag> models = new List<SolidWorksModelButtonTag>();
+            foreach (SolidWorksResourceApiService.ElementDto element in response.Elements ?? new List<SolidWorksResourceApiService.ElementDto>())
+            {
+                SolidWorksResourceApiService.ResourceListResponse resourceResponse = await _solidWorksResourceApi.ListAsync(element.Id);
+                if (!resourceResponse.Success) continue;
+                foreach (SolidWorksResourceApiService.ResourceDto resource in resourceResponse.Resources ?? new List<SolidWorksResourceApiService.ResourceDto>())
+                {
+                    if (!string.Equals(resource.Platform, "SOLIDWORKS", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(resource.Status, "ARCHIVED", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(resource.Status, "DISABLED", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    models.Add(new SolidWorksModelButtonTag { Element = element, Resource = resource });
+                }
+            }
+            if (models.Count == 0) return 0;
 
             Panel buttonPanel;
             if (string.IsNullOrWhiteSpace(subcategoryHeader))
@@ -313,18 +337,20 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 targetPanel.Children.Add(groupBox);
             }
 
-            foreach (SolidWorksResourceApiService.ElementDto element in elements)
+            foreach (SolidWorksModelButtonTag model in models)
             {
-                string displayName = string.IsNullOrWhiteSpace(element.DisplayName) ? element.Name : element.DisplayName;
+                string displayName = string.IsNullOrWhiteSpace(model.Resource.DisplayName)
+                    ? (string.IsNullOrWhiteSpace(model.Resource.ResourceName) ? model.Element.Name : model.Resource.ResourceName)
+                    : model.Resource.DisplayName;
                 var button = new Button
                 {
                     Content = displayName,
-                    Tag = element,
+                    Tag = model,
                     Width = 118,
                     Height = 28,
                     Margin = new Thickness(1),
                     Padding = new Thickness(2, 0, 2, 0),
-                    ToolTip = "构件编码：" + element.ElementCode,
+                    ToolTip = "构件编码：" + model.Element.ElementCode + "；模型资源ID：" + model.Resource.Id,
                     Background = Brushes.Azure
                 };
                 button.Click += SolidWorksPublicElementButton_Click;
@@ -334,19 +360,137 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 buttonPanel.Children.Add(button);
             }
 
-            return elements.Count;
+            return models.Count;
         }
 
         private async void SolidWorksPublicElementButton_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             e.Handled = true;
-            if (!(sender is Button button) || !(button.Tag is SolidWorksResourceApiService.ElementDto element))
+            if (!(sender is Button button) || !(button.Tag is SolidWorksModelButtonTag model))
             {
                 SolidWorksFileLogger.Skipped("双击插入 SolidWorks 图元", "按钮没有绑定有效构件");
                 return;
             }
-            SolidWorksFileLogger.Start("双击插入 SolidWorks 图元；构件ID=" + element.Id);
-            await InsertSolidWorksElementAsync(element, null);
+            if (_solidWorksPublicElementClickTimer != null)
+                _solidWorksPublicElementClickTimer.Stop();
+            _pendingSolidWorksPublicElementClick = null;
+            _suppressNextSolidWorksPublicElementClick = true;
+            _suppressSolidWorksPublicElementClickUntil = DateTime.UtcNow.AddMilliseconds(
+                Math.Max(500, System.Windows.Forms.SystemInformation.DoubleClickTime * 2));
+            SolidWorksFileLogger.Info("检测到模型按钮双击，已取消排队的单击预览，避免重复请求资源附件。资源ID=" + model.Resource.Id + "。");
+            SolidWorksFileLogger.Start("双击插入 SolidWorks 模型；构件ID=" + model.Element.Id + "；资源ID=" + model.Resource.Id);
+            try
+            {
+                SolidWorksFileLogger.Info("按直接插入模式使用资源默认配置和显示状态；不显示配置选择窗口；资源ID=" + model.Resource.Id + "。");
+                await InsertSolidWorksElementAsync(model.Element, model.Resource, null);
+            }
+            catch (Exception ex)
+            {
+                SolidWorksFileLogger.Failed("直接插入 SolidWorks 模型", ex);
+                TxtStatus.Text = "直接插入模型失败：" + ex.Message;
+            }
+        }
+
+        /// <summary>从本地缓存模型读取配置及各配置可用的显示状态，供插入设置窗口选择。</summary>
+        private async Task<IDictionary<string, IList<string>>> GetSolidWorksInsertOptionsAsync(
+            SolidWorksResourceApiService.ResourceDto resource)
+        {
+            var displayStatesByConfiguration = new Dictionary<string, IList<string>>(StringComparer.OrdinalIgnoreCase);
+            if (resource == null || SW == null)
+                throw new InvalidOperationException("SolidWorks 模型资源或应用程序对象不可用。");
+
+            EnsureSolidWorksResourceApi();
+            string extension = string.Equals(resource.ResourceType, "SLDASM", StringComparison.OrdinalIgnoreCase) ? ".sldasm" : ".sldprt";
+            string modelPath = _solidWorksLocalCache.TryGetModel(resource, extension);
+            if (modelPath == null)
+            {
+                byte[] modelBytes = await _solidWorksResourceApi.DownloadModelAsync(resource.Id);
+                modelPath = await _solidWorksLocalCache.WriteAsync(
+                    _solidWorksLocalCache.GetModelPath(resource, extension),
+                    modelBytes,
+                    "SolidWorks 模型");
+            }
+            SolidWorksFileLogger.Info("读取 SolidWorks 模型配置；资源ID=" + resource.Id + "；版本=" + resource.Version +
+                "；文件哈希=" + (resource.FileHash ?? string.Empty) + "；缓存路径=" + modelPath + "。");
+
+            ModelDoc2 activeDocument = SW.ActiveDoc as ModelDoc2;
+            string activeDocumentTitle = activeDocument?.GetTitle();
+            ModelDoc2 modelDocument = SW.GetOpenDocumentByName(modelPath) as ModelDoc2;
+            bool openedForOptions = false;
+            try
+            {
+                if (modelDocument == null)
+                {
+                    int documentType = string.Equals(resource.ResourceType, "SLDASM", StringComparison.OrdinalIgnoreCase)
+                        ? (int)swDocumentTypes_e.swDocASSEMBLY
+                        : (int)swDocumentTypes_e.swDocPART;
+                    int openErrors = 0;
+                    int openWarnings = 0;
+                    modelDocument = SW.OpenDoc6(
+                        modelPath,
+                        documentType,
+                        (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
+                        string.Empty,
+                        ref openErrors,
+                        ref openWarnings) as ModelDoc2;
+                    if (modelDocument == null)
+                        throw new InvalidOperationException("SolidWorks 无法读取模型配置；错误码=" + openErrors + "；警告码=" + openWarnings + "。");
+                    openedForOptions = true;
+                }
+
+                foreach (string configurationName in EnumerateSolidWorksNames(modelDocument.GetConfigurationNames()))
+                {
+                    Configuration configuration = modelDocument.GetConfigurationByName(configurationName) as Configuration;
+                    if (configuration == null)
+                        continue;
+                    displayStatesByConfiguration[configurationName] =
+                        EnumerateSolidWorksNames(configuration.GetDisplayStates()).ToList();
+                }
+
+                if (displayStatesByConfiguration.Count == 0)
+                {
+                    Configuration activeConfiguration = modelDocument.ConfigurationManager?.ActiveConfiguration;
+                    if (activeConfiguration != null)
+                        displayStatesByConfiguration[activeConfiguration.Name] =
+                            EnumerateSolidWorksNames(activeConfiguration.GetDisplayStates()).ToList();
+                }
+            }
+            finally
+            {
+                if (openedForOptions)
+                    SW.CloseDoc(modelPath);
+                if (!string.IsNullOrWhiteSpace(activeDocumentTitle))
+                {
+                    int activateErrors = 0;
+                    SW.ActivateDoc3(activeDocumentTitle, false, 0, ref activateErrors);
+                    if (activateErrors != 0)
+                        SolidWorksFileLogger.Warning("读取插入选项后恢复当前文档时收到错误码=" + activateErrors + "。");
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(resource.ConfigurationName) &&
+                !displayStatesByConfiguration.ContainsKey(resource.ConfigurationName))
+                displayStatesByConfiguration[resource.ConfigurationName] = new List<string>();
+            if (displayStatesByConfiguration.Count == 0)
+                displayStatesByConfiguration["默认配置"] = new List<string>();
+
+            SolidWorksFileLogger.Info("已读取模型插入选项；配置数量=" + displayStatesByConfiguration.Count + "；显示状态总数=" +
+                displayStatesByConfiguration.Values.Sum(states => states.Count) + "。");
+            return displayStatesByConfiguration;
+        }
+
+        /// <summary>将 SolidWorks COM 返回的名称数组统一转换为字符串序列。</summary>
+        private static IEnumerable<string> EnumerateSolidWorksNames(object names)
+        {
+            if (names is IEnumerable values)
+            {
+                foreach (object value in values)
+                {
+                    string name = Convert.ToString(value);
+                    if (!string.IsNullOrWhiteSpace(name))
+                        yield return name;
+                }
+            }
         }
 
         private void SolidWorksPublicElementButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -357,18 +501,23 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private void SolidWorksPublicElementButton_PreviewMouseMove(object sender, MouseEventArgs e)
         {
-            if (e.LeftButton != MouseButtonState.Pressed || !(sender is Button button) || !(button.Tag is SolidWorksResourceApiService.ElementDto element)) return;
+            if (e.LeftButton != MouseButtonState.Pressed || !(sender is Button button) || !(button.Tag is SolidWorksModelButtonTag model)) return;
             Point currentPoint = e.GetPosition(null);
             if (Math.Abs(currentPoint.X - _solidWorksButtonDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
                 Math.Abs(currentPoint.Y - _solidWorksButtonDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance) return;
 
-            DataObject data = new DataObject(typeof(SolidWorksResourceApiService.ElementDto), element);
-            SolidWorksFileLogger.Info("开始执行 SolidWorks 图元按钮拖放；构件ID=" + element.Id + "。" );
+            DataObject data = new DataObject(typeof(SolidWorksModelButtonTag), model);
+            SolidWorksFileLogger.Info("开始执行 SolidWorks 模型按钮拖放；构件ID=" + model.Element.Id + "；资源ID=" + model.Resource.Id + "。" );
             DragDrop.DoDragDrop(button, data, DragDropEffects.Copy);
         }
 
         /// <summary>统一执行 SolidWorks 图元插入：双击使用默认位置，拖放使用拖放位置。</summary>
-        private async Task InsertSolidWorksElementAsync(SolidWorksResourceApiService.ElementDto element, Point? dropPoint)
+        private async Task InsertSolidWorksElementAsync(
+            SolidWorksResourceApiService.ElementDto element,
+            SolidWorksResourceApiService.ResourceDto resource,
+            Point? dropPoint,
+            string selectedConfiguration = null,
+            string selectedDisplayState = null)
         {
             if (element == null || SW == null)
             {
@@ -377,15 +526,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 return;
             }
 
-            SolidWorksFileLogger.Start("准备插入 SolidWorks 图元；构件ID=" + element.Id + "；方式=" + (dropPoint.HasValue ? "拖放" : "双击"));
+            SolidWorksFileLogger.Start("准备插入 SolidWorks 图元；构件ID=" + element.Id + "；方式=" + (dropPoint.HasValue ? "拖放" : "双击") +
+                "；配置=" + (selectedConfiguration ?? "资源默认") + "；显示状态=" + (selectedDisplayState ?? "模型默认"));
             bool previewModelOpened = false;
             string cachePath = null;
             try
             {
                 EnsureSolidWorksResourceApi();
-                SolidWorksFileLogger.Info("开始查询 SolidWorks 图元资源；构件ID=" + element.Id + "。" );
-                SolidWorksResourceApiService.ResourceListResponse response = await _solidWorksResourceApi.ListAsync(element.Id);
-                SolidWorksResourceApiService.ResourceDto resource = response.Resources.FirstOrDefault();
                 if (resource == null)
                 {
                     SolidWorksFileLogger.Skipped("插入 SolidWorks 图元", "当前构件没有模型资源；构件ID=" + element.Id);
@@ -401,6 +548,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     byte[] modelBytes = await _solidWorksResourceApi.DownloadModelAsync(resource.Id);
                     cachePath = await _solidWorksLocalCache.WriteAsync(_solidWorksLocalCache.GetModelPath(resource, extension), modelBytes, "SolidWorks 模型");
                 }
+                SolidWorksFileLogger.Info("本次插入模型身份；资源ID=" + resource.Id + "；版本=" + resource.Version +
+                    "；文件哈希=" + (resource.FileHash ?? string.Empty) + "；模型路径=" + cachePath + "。");
 
                 ModelDoc2 activeDocument = SW.ActiveDoc as ModelDoc2;
                 if (activeDocument == null)
@@ -416,7 +565,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                      SolidWorksFileLogger.Info("已识别当前文档为工程图，等待用户在图纸空间单击插入位置。" );
                     DrawingDoc drawing = activeDocument as DrawingDoc;
                     if (drawing == null) throw new InvalidOperationException("当前工程图文档接口不可用。" );
-                    string viewName = string.IsNullOrWhiteSpace(resource.ConfigurationName) ? "*前视" : resource.ConfigurationName;
+                    string configurationName = (selectedConfiguration ?? resource.ConfigurationName ?? string.Empty).Trim();
+                    // CreateDrawViewFromModelView3 第二个参数是模型视图方向，不是配置名；配置必须另设到视图引用上。
+                    const string modelViewName = "*Front";
                      Point? drawingPoint = await WaitForDrawingInsertPointAsync(activeDocument);
                      if (!drawingPoint.HasValue)
                      {
@@ -424,8 +575,45 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                          return;
                      }
                      SolidWorksFileLogger.Info("已取得工程图插入位置；X=" + drawingPoint.Value.X.ToString("0.######") + "；Y=" + drawingPoint.Value.Y.ToString("0.######") + "。" );
-                     View view = drawing.CreateDrawViewFromModelView3(cachePath, viewName, drawingPoint.Value.X, drawingPoint.Value.Y, 0.0);
+                    PrepareSolidWorksConfigurationFileForInsertion(
+                        cachePath,
+                        resource.ResourceType,
+                        configurationName,
+                        resource.Id,
+                        activeDocument.GetTitle());
+                      View view = drawing.CreateDrawViewFromModelView3(cachePath, modelViewName, drawingPoint.Value.X, drawingPoint.Value.Y, 0.0);
                     if (view == null) throw new InvalidOperationException("工程图模型视图创建失败。请确认当前图纸存在有效图纸页。" );
+                    try
+                    {
+                        if (!string.IsNullOrWhiteSpace(configurationName))
+                        {
+                            view.ReferencedConfiguration = configurationName;
+                            activeDocument.EditRebuild3();
+                            string actualConfiguration = view.ReferencedConfiguration;
+                            string actualModelPath = view.GetReferencedModelName();
+                            SolidWorksFileLogger.Info("工程图模型视图配置校验；资源ID=" + resource.Id + "；请求配置=" + configurationName +
+                                "；实际配置=" + actualConfiguration + "；模型路径=" + actualModelPath + "。");
+                            if (!AreSameModelPath(cachePath, actualModelPath))
+                                throw new InvalidOperationException("工程图视图引用了错误的模型文件；期望=" + cachePath + "；实际=" + actualModelPath + "。");
+                            if (!string.Equals(actualConfiguration, configurationName, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidOperationException("工程图视图未能应用所选模型配置；所选=" + configurationName + "；实际=" + actualConfiguration + "。");
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(selectedDisplayState))
+                        {
+                            view.DisplayState = selectedDisplayState;
+                            activeDocument.EditRebuild3();
+                            string actualDisplayState = view.DisplayState;
+                            SolidWorksFileLogger.Info("工程图显示状态校验；请求状态=" + selectedDisplayState + "；实际状态=" + actualDisplayState + "。");
+                            if (!string.Equals(actualDisplayState, selectedDisplayState, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidOperationException("工程图视图未能应用所选显示状态；所选=" + selectedDisplayState + "；实际=" + actualDisplayState + "。");
+                        }
+                    }
+                    catch
+                    {
+                        DeleteDrawingView(activeDocument, view);
+                        throw;
+                    }
                     TxtStatus.Text = "SolidWorks 图元已插入当前工程图。";
                 }
 
@@ -446,13 +634,34 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     ModelDoc2 loadedModel = SW.OpenDoc6(cachePath, sourceDocumentType, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, string.Empty, ref openErrors, ref openWarnings);
                     if (loadedModel == null)
                         throw new InvalidOperationException("SolidWorks 无法打开预览模型；错误码=" + openErrors + "；警告码=" + openWarnings + "。" );
-                    previewModelOpened = true;
-                    string configurationName = (resource.ConfigurationName ?? string.Empty).Trim();
+                    // 警告码 128 表示模型已在当前 SolidWorks 会话中打开；此时 AddComponent5 使用的是现有文档，
+                    // 不能在插入完成后关闭它，否则装配体组件会失去源模型引用并出现红色重建错误。
+                    previewModelOpened = (openWarnings & (int)swFileLoadWarning_e.swFileLoadWarning_AlreadyOpen) == 0;
+                    if (!previewModelOpened)
+                        SolidWorksFileLogger.Info("源模型已在 SolidWorks 会话中打开，本次复用现有模型且插入完成后不关闭；资源ID=" + resource.Id + "。" );
+                    string configurationName = (selectedConfiguration ?? resource.ConfigurationName ?? string.Empty).Trim();
                     if (string.IsNullOrWhiteSpace(configurationName))
                         configurationName = loadedModel.ConfigurationManager.ActiveConfiguration.Name;
+                    // 装配体原生插入不会先对源模型执行 Save3。Save3 可能仅因重建警告返回 warning，
+                    // 但并不妨碍 AddComponent5 创建跟随鼠标的组件；这里仅切换活动配置，避免配置改造后的预检阻断原生插入流程。
+                    bool configurationActivated = loadedModel.ShowConfiguration2(configurationName);
+                    string activeSourceConfiguration = loadedModel.ConfigurationManager?.ActiveConfiguration?.Name ?? string.Empty;
+                    SolidWorksFileLogger.Info("按 SolidWorks 原生装配体插入流程准备源模型；资源ID=" + resource.Id +
+                        "；请求配置=" + configurationName + "；活动配置=" + activeSourceConfiguration +
+                        "；切换接口返回=" + (configurationActivated ? "成功" : "未切换或已活动") + "；跳过 Save3 预检。");
                     SolidWorksFileLogger.Info("预览模型已打开；配置=" + configurationName + "；错误码=" + openErrors + "；警告码=" + openWarnings + "。" );
+                    // 在调用 AddComponent5 前诊断源模型当前配置，确认红色重建警告是否来自基准轴等源特征。
+                    List<string> sourceFeatureDiagnostics = DiagnoseSolidWorksConfigurationFeatures(
+                        loadedModel,
+                        resource.Id,
+                        configurationName);
+                    if (sourceFeatureDiagnostics.Count > 0)
+                        SolidWorksFileLogger.Warning("源模型配置存在特征级重建诊断结果；资源ID=" + resource.Id +
+                            "；配置=" + configurationName + "；异常特征数=" + sourceFeatureDiagnostics.Count +
+                            "；插入后可能显示重建警告；未自动修改源模型。" );
                     Component2 component = assembly.AddComponent5(cachePath, 0, configurationName, false, string.Empty, 0.0, 0.0, 0.0);
                     SolidWorksFileLogger.Info("已调用 AddComponent5 插入装配体组件；是否取得组件=" + (component != null ? "是" : "否") + "。" );
+                    bool usedLegacyInsert = false;
                     if (component == null)
                     {
                         SolidWorksFileLogger.Warning("AddComponent5 未返回零部件；开始尝试旧兼容接口。" );
@@ -464,8 +673,45 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                             component = FindNewestAssemblyComponent(assembly, cachePath);
                             if (component == null)
                                 throw new InvalidOperationException("装配体已返回插入成功，但无法取得零部件对象以执行鼠标跟随。" );
+                            usedLegacyInsert = true;
                             SolidWorksFileLogger.Info("已通过兼容插入接口添加并取得装配体零部件对象。" );
                         }
+                    }
+                    try
+                    {
+                        if (usedLegacyInsert)
+                            component.ReferencedConfiguration = configurationName;
+                        string actualConfiguration = component.ReferencedConfiguration;
+                        if (!string.Equals(actualConfiguration, configurationName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            component.ReferencedConfiguration = configurationName;
+                            actualConfiguration = component.ReferencedConfiguration;
+                        }
+                        string actualModelPath = component.GetPathName();
+                        SolidWorksFileLogger.Info("装配体组件配置校验；资源ID=" + resource.Id + "；请求配置=" + configurationName +
+                            "；实际配置=" + actualConfiguration + "；模型路径=" + actualModelPath + "。");
+                        if (!AreSameModelPath(cachePath, actualModelPath))
+                            throw new InvalidOperationException("装配体组件引用了错误的模型文件；期望=" + cachePath + "；实际=" + actualModelPath + "。");
+                        if (!string.Equals(actualConfiguration, configurationName, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidOperationException("装配体组件未能应用所选模型配置；所选=" + configurationName + "；实际=" + actualConfiguration + "。");
+                        SolidWorksFileLogger.Info("装配体组件已确认使用资源默认配置；资源ID=" + resource.Id + "；配置=" + actualConfiguration + "。");
+
+                        if (!string.IsNullOrWhiteSpace(selectedDisplayState))
+                        {
+                            component.ReferencedDisplayState2 = selectedDisplayState;
+                            string actualDisplayState = component.ReferencedDisplayState2;
+                            SolidWorksFileLogger.Info("装配体显示状态校验；请求状态=" + selectedDisplayState + "；实际状态=" + actualDisplayState + "。");
+                            if (!string.Equals(actualDisplayState, selectedDisplayState, StringComparison.OrdinalIgnoreCase))
+                                throw new InvalidOperationException("装配体组件未能应用所选显示状态；所选=" + selectedDisplayState + "；实际=" + actualDisplayState + "。");
+                        }
+                        // 不在组件刚创建时强制重建，避免基准轴等源特征在尚未完成最终定位时被重复求解。
+                        // 组件状态先记录，待用户确认落点后再执行一次最终装配体重建。
+                        LogAssemblyComponentState(component, resource.Id, configurationName, "完成配置校验、尚未最终重建");
+                    }
+                    catch
+                    {
+                        DeleteAssemblyPreviewComponent(activeDocument, component, "配置或显示状态校验失败");
+                        throw;
                     }
                     ApplyAssemblyInstanceName(component, GetAssemblyInstanceBaseName(resource, cachePath), assembly);
                     // 原生“插入零部件”创建的是可移动零部件；这里也必须确保 API 创建的组件不是固定状态。
@@ -476,14 +722,31 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     if (!assemblyPoint.HasValue)
                     {
                         DeleteAssemblyPreviewComponent(activeDocument, component);
-                        SW.CloseDoc(cachePath);
-                        previewModelOpened = false;
+                        if (previewModelOpened)
+                        {
+                            SW.CloseDoc(cachePath);
+                            previewModelOpened = false;
+                        }
                         TxtStatus.Text = "已取消 SolidWorks 装配体插入。";
                         return;
                     }
                     SolidWorksFileLogger.Info("已确认装配体零部件落点；预览模型窗口将在插入完成后关闭。" );
-                    SW.CloseDoc(cachePath);
-                    previewModelOpened = false;
+                    bool finalRebuildResult = activeDocument.EditRebuild3();
+                    SolidWorksFileLogger.Info("确认装配体零部件落点后重建；资源ID=" + resource.Id + "；重建结果=" + (finalRebuildResult ? "成功" : "失败") + "。" );
+                    LogAssemblyComponentState(component, resource.Id, configurationName, "确认落点后");
+                    ModelDoc2 insertedComponentModel = component.GetModelDoc2() as ModelDoc2;
+                    if (insertedComponentModel != null)
+                        DiagnoseSolidWorksConfigurationFeatures(insertedComponentModel, resource.Id, configurationName);
+                    if (previewModelOpened)
+                    {
+                        SW.CloseDoc(cachePath);
+                        previewModelOpened = false;
+                        SolidWorksFileLogger.Info("已关闭本次插入临时打开的源模型；资源ID=" + resource.Id + "。" );
+                    }
+                    else
+                    {
+                        SolidWorksFileLogger.Info("源模型由 SolidWorks 会话原有文档提供，保留打开状态；资源ID=" + resource.Id + "。" );
+                    }
                     TxtStatus.Text = "SolidWorks 图元已插入当前装配体。";
                 }
                 else
@@ -799,14 +1062,314 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             return new ModelPoint(modelX, modelY, modelZ);
         }
 
-        private void DeleteAssemblyPreviewComponent(ModelDoc2 document, Component2 component)
+        private void DeleteDrawingView(ModelDoc2 document, View view)
+        {
+            if (document == null || view == null) return;
+            string viewName = view.GetName2();
+            try
+            {
+                if (document.Extension.SelectByID2(viewName, "DRAWINGVIEW", 0.0, 0.0, 0.0, false, 0, null, 0))
+                    document.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed);
+                document.ClearSelection2(true);
+                SolidWorksFileLogger.Info("已清理未能应用配置/显示状态的工程图视图；视图=" + viewName + "。");
+            }
+            catch (Exception ex)
+            {
+                SolidWorksFileLogger.Warning("清理未能应用配置/显示状态的工程图视图失败：" + ex.Message);
+            }
+        }
+
+        /// <summary>比较 SolidWorks 返回的模型路径与当前资源缓存路径，防止不同资源文件被误插入。</summary>
+        private static bool AreSameModelPath(string expectedPath, string actualPath)
+        {
+            if (string.IsNullOrWhiteSpace(expectedPath) || string.IsNullOrWhiteSpace(actualPath))
+                return false;
+            try
+            {
+                string expected = Path.GetFullPath(expectedPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                string actual = Path.GetFullPath(actualPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(expectedPath, actualPath, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>记录插入组件的加载、抑制和源模型状态，定位装配体中的红色重建错误。</summary>
+        private static void LogAssemblyComponentState(Component2 component, long resourceId, string configurationName, string stage)
+        {
+            if (component == null)
+            {
+                SolidWorksFileLogger.Warning("装配体组件状态诊断失败：组件对象为空；资源ID=" + resourceId + "；阶段=" + stage + "。" );
+                return;
+            }
+
+            try
+            {
+                bool loaded = component.IsLoaded();
+                bool suppressed = component.IsSuppressed();
+                int suppressionState = component.GetSuppression2();
+                ModelDoc2 componentModel = component.GetModelDoc2() as ModelDoc2;
+                SolidWorksFileLogger.Info("装配体组件状态诊断；资源ID=" + resourceId + "；阶段=" + stage +
+                    "；配置=" + configurationName + "；已加载=" + (loaded ? "是" : "否") +
+                    "；已抑制=" + (suppressed ? "是" : "否") + "；抑制状态码=" + suppressionState +
+                    "；源模型接口=" + (componentModel == null ? "不可用" : "可用") + "。" );
+
+                if (componentModel != null)
+                {
+                    string activeConfiguration = componentModel.ConfigurationManager?.ActiveConfiguration?.Name ?? string.Empty;
+                    SolidWorksFileLogger.Info("装配体组件源模型状态；资源ID=" + resourceId + "；阶段=" + stage +
+                        "；路径=" + componentModel.GetPathName() + "；活动配置=" + activeConfiguration + "。" );
+                }
+            }
+            catch (Exception ex)
+            {
+                SolidWorksFileLogger.Warning("读取装配体组件状态失败；资源ID=" + resourceId + "；阶段=" + stage + "；原因=" + ex.Message);
+            }
+        }
+
+        /// <summary>在插入前激活并强制重建资源模型的目标配置，避免未重建配置进入工程图或装配体。</summary>
+        private static void PrepareSolidWorksConfigurationForInsertion(
+            ModelDoc2 modelDocument,
+            string configurationName,
+            long resourceId,
+            string modelPath)
+        {
+            if (modelDocument == null)
+                throw new InvalidOperationException("SolidWorks 模型文档不可用，无法预检配置。");
+            if (string.IsNullOrWhiteSpace(configurationName) || modelDocument.GetConfigurationByName(configurationName) == null)
+                throw new InvalidOperationException("资源模型中不存在所选配置；资源ID=" + resourceId + "；配置=" + configurationName + "。");
+
+            string activeConfiguration = modelDocument.ConfigurationManager?.ActiveConfiguration?.Name ?? string.Empty;
+            bool alreadyActive = string.Equals(activeConfiguration, configurationName, StringComparison.OrdinalIgnoreCase);
+            bool activationResult = alreadyActive || modelDocument.ShowConfiguration2(configurationName);
+            activeConfiguration = modelDocument.ConfigurationManager?.ActiveConfiguration?.Name ?? string.Empty;
+            bool configurationActivated = string.Equals(activeConfiguration, configurationName, StringComparison.OrdinalIgnoreCase);
+            SolidWorksFileLogger.Info("激活 SolidWorks 模型配置；资源ID=" + resourceId + "；缓存路径=" + modelPath +
+                "；请求配置=" + configurationName + "；活动配置=" + activeConfiguration +
+                "；原本已活动=" + (alreadyActive ? "是" : "否") + "；切换接口返回=" + (activationResult ? "成功" : "失败") +
+                "；最终配置匹配=" + (configurationActivated ? "是" : "否") + "。");
+            if (!configurationActivated)
+                throw new InvalidOperationException("SolidWorks 未能激活所选模型配置；所选=" + configurationName + "；活动配置=" + activeConfiguration + "。");
+            if (!activationResult && !alreadyActive)
+                SolidWorksFileLogger.Warning("配置切换接口返回失败，但 SolidWorks 活动配置已匹配所选配置；继续进行重建预检。资源ID=" + resourceId + "；配置=" + configurationName + "。");
+
+            bool rebuilt = modelDocument.ForceRebuild3(false);
+            SolidWorksFileLogger.Info("强制重建 SolidWorks 模型配置；资源ID=" + resourceId + "；配置=" + configurationName +
+                "；重建结果=" + (rebuilt ? "成功" : "失败") + "。");
+            if (!rebuilt)
+            {
+                List<string> featureDiagnostics = DiagnoseSolidWorksConfigurationFeatures(modelDocument, resourceId, configurationName);
+                throw new InvalidOperationException("所选模型配置自身重建失败，未执行插入；配置=" + configurationName + "；" +
+                    SummarizeSolidWorksFeatureDiagnostics(featureDiagnostics) + "请检查该配置下特征、方程式和外部引用。");
+            }
+
+            int saveErrors = 0;
+            int saveWarnings = 0;
+            bool saved = modelDocument.Save3((int)swSaveAsOptions_e.swSaveAsOptions_Silent, ref saveErrors, ref saveWarnings);
+            SolidWorksFileLogger.Info("保存重建后的 SolidWorks 本地缓存模型；资源ID=" + resourceId + "；配置=" + configurationName +
+                "；保存结果=" + (saved ? "成功" : "失败") + "；错误码=" + saveErrors + "；警告码=" + saveWarnings + "。");
+            bool hasRebuildErrorWarning = (saveWarnings & (int)swFileSaveWarning_e.swFileSaveWarning_RebuildError) != 0;
+            if (hasRebuildErrorWarning)
+            {
+                List<string> featureDiagnostics = DiagnoseSolidWorksConfigurationFeatures(modelDocument, resourceId, configurationName);
+                throw new InvalidOperationException("SolidWorks 保存时报告所选配置存在模型重建错误，已中止插入；配置=" + configurationName +
+                    "；警告码=" + saveWarnings + "；" + SummarizeSolidWorksFeatureDiagnostics(featureDiagnostics) + "请检查该配置的特征树。");
+            }
+            if (!saved || saveErrors != 0)
+                throw new InvalidOperationException("保存重建后的模型缓存失败，未执行插入；配置=" + configurationName +
+                    "；错误码=" + saveErrors + "；警告码=" + saveWarnings + "。");
+        }
+
+        /// <summary>遍历当前活动配置的特征树，记录 SolidWorks 返回的非零特征重建错误码。</summary>
+        private static List<string> DiagnoseSolidWorksConfigurationFeatures(ModelDoc2 modelDocument, long resourceId, string configurationName)
+        {
+            var diagnostics = new List<string>();
+            var visitedFeatures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                Feature firstFeature = modelDocument.FirstFeature() as Feature;
+                CollectSolidWorksFeatureDiagnostics(
+                    firstFeature,
+                    false,
+                    string.Empty,
+                    visitedFeatures,
+                    diagnostics,
+                    resourceId,
+                    configurationName);
+            }
+            catch (Exception ex)
+            {
+                SolidWorksFileLogger.Warning("遍历 SolidWorks 配置特征树失败；资源ID=" + resourceId + "；配置=" + configurationName + "；原因=" + ex.Message);
+            }
+
+            if (diagnostics.Count == 0)
+                SolidWorksFileLogger.Warning("特征树诊断未返回非零特征错误码；重建/保存警告可能来自配置方程式、外部引用或模型级状态；资源ID=" + resourceId + "；配置=" + configurationName + "。");
+            else
+                SolidWorksFileLogger.Warning("特征树诊断完成；资源ID=" + resourceId + "；配置=" + configurationName + "；异常特征数=" + diagnostics.Count + "。");
+            return diagnostics;
+        }
+
+        /// <summary>递归检查顶层特征及其子特征，并防止 COM 特征树重复节点导致循环遍历。</summary>
+        private static void CollectSolidWorksFeatureDiagnostics(
+            Feature firstFeature,
+            bool isSubFeature,
+            string parentPath,
+            HashSet<string> visitedFeatures,
+            List<string> diagnostics,
+            long resourceId,
+            string configurationName)
+        {
+            Feature feature = firstFeature;
+            while (feature != null)
+            {
+                string featureName = "未命名特征";
+                string featureType = "未知类型";
+                try { featureName = feature.Name ?? featureName; } catch { }
+                try { featureType = feature.GetTypeName2() ?? featureType; } catch { }
+                string featurePath = string.IsNullOrWhiteSpace(parentPath)
+                    ? featureName + "[" + featureType + "]"
+                    : parentPath + "/" + featureName + "[" + featureType + "]";
+                if (!visitedFeatures.Add(featurePath))
+                    break;
+
+                try
+                {
+                    bool isWarning;
+                    int errorCode = feature.GetErrorCode2(out isWarning);
+                    if (errorCode != 0)
+                    {
+                        string errorName = Enum.GetName(typeof(swFeatureError_e), errorCode) ?? "未知特征错误码";
+                        string severity = isWarning ? "警告" : "错误";
+                        string detail = featurePath + "；级别=" + severity + "；错误码=" + errorCode + "（" + errorName + "）";
+                        diagnostics.Add(detail);
+                        SolidWorksFileLogger.Warning("SolidWorks 配置特征重建诊断；资源ID=" + resourceId + "；配置=" + configurationName + "；" + detail + "。");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    SolidWorksFileLogger.Warning("读取 SolidWorks 特征错误码失败；资源ID=" + resourceId + "；配置=" + configurationName +
+                        "；特征=" + featurePath + "；原因=" + ex.Message);
+                }
+
+                try
+                {
+                    Feature firstSubFeature = feature.GetFirstSubFeature() as Feature;
+                    CollectSolidWorksFeatureDiagnostics(
+                        firstSubFeature,
+                        true,
+                        featurePath,
+                        visitedFeatures,
+                        diagnostics,
+                        resourceId,
+                        configurationName);
+                }
+                catch (Exception ex)
+                {
+                    SolidWorksFileLogger.Warning("遍历 SolidWorks 子特征失败；资源ID=" + resourceId + "；配置=" + configurationName +
+                        "；父特征=" + featurePath + "；原因=" + ex.Message);
+                }
+
+                try
+                {
+                    feature = isSubFeature
+                        ? feature.GetNextSubFeature() as Feature
+                        : feature.GetNextFeature() as Feature;
+                }
+                catch (Exception ex)
+                {
+                    SolidWorksFileLogger.Warning("读取 SolidWorks 后续特征失败；资源ID=" + resourceId + "；配置=" + configurationName +
+                        "；特征=" + featurePath + "；原因=" + ex.Message);
+                    break;
+                }
+            }
+        }
+
+        /// <summary>生成插入中止提示中的特征诊断摘要。</summary>
+        private static string SummarizeSolidWorksFeatureDiagnostics(IList<string> diagnostics)
+        {
+            if (diagnostics == null || diagnostics.Count == 0)
+                return "特征级诊断未能定位具体特征；请检查配置方程式、外部引用和模型级重建状态；";
+            return "异常特征数=" + diagnostics.Count + "；首个异常=" + diagnostics[0] + "；";
+        }
+
+        /// <summary>为工程图插入打开缓存模型并预检配置，完成后关闭本次临时打开的模型并恢复当前文档。</summary>
+        private void PrepareSolidWorksConfigurationFileForInsertion(
+            string modelPath,
+            string resourceType,
+            string configurationName,
+            long resourceId,
+            string documentToRestore)
+        {
+            ModelDoc2 modelDocument = SW.GetOpenDocumentByName(modelPath) as ModelDoc2;
+            bool openedForPreflight = false;
+            try
+            {
+                if (modelDocument == null)
+                {
+                    int documentType = string.Equals(resourceType, "SLDASM", StringComparison.OrdinalIgnoreCase)
+                        ? (int)swDocumentTypes_e.swDocASSEMBLY
+                        : (int)swDocumentTypes_e.swDocPART;
+                    int openErrors = 0;
+                    int openWarnings = 0;
+                    modelDocument = SW.OpenDoc6(
+                        modelPath,
+                        documentType,
+                        (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
+                        string.Empty,
+                        ref openErrors,
+                        ref openWarnings) as ModelDoc2;
+                    if (modelDocument == null)
+                        throw new InvalidOperationException("无法打开待插入的 SolidWorks 模型；资源ID=" + resourceId +
+                            "；错误码=" + openErrors + "；警告码=" + openWarnings + "。");
+                    openedForPreflight = (openWarnings & (int)swFileLoadWarning_e.swFileLoadWarning_AlreadyOpen) == 0;
+                    if (!openedForPreflight)
+                        SolidWorksFileLogger.Info("配置预检检测到模型已在 SolidWorks 会话中打开，复用现有文档且不在预检后关闭；资源ID=" + resourceId + "。");
+                }
+
+                PrepareSolidWorksConfigurationForInsertion(modelDocument, configurationName, resourceId, modelPath);
+            }
+            finally
+            {
+                if (openedForPreflight)
+                {
+                    try
+                    {
+                        SW.CloseDoc(modelPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        SolidWorksFileLogger.Warning("关闭配置预检临时模型失败；资源ID=" + resourceId + "；原因=" + ex.Message);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(documentToRestore))
+                {
+                    try
+                    {
+                        int activateErrors = 0;
+                        SW.ActivateDoc3(documentToRestore, false, 0, ref activateErrors);
+                        if (activateErrors != 0)
+                            SolidWorksFileLogger.Warning("配置预检后恢复当前文档失败；文档=" + documentToRestore + "；错误码=" + activateErrors + "。");
+                    }
+                    catch (Exception ex)
+                    {
+                        SolidWorksFileLogger.Warning("配置预检后恢复当前文档异常；文档=" + documentToRestore + "；原因=" + ex.Message);
+                    }
+                }
+            }
+        }
+
+        private void DeleteAssemblyPreviewComponent(ModelDoc2 document, Component2 component, string reason = "用户取消插入")
         {
             if (component == null) return;
             try
             {
                 component.Select(false);
                 document.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed);
-                SolidWorksFileLogger.Info("已删除取消插入的装配体预览零部件。" );
+                document.ClearSelection2(true);
+                SolidWorksFileLogger.Info("已删除装配体预览零部件；原因=" + reason + "。" );
             }
             catch (Exception ex)
             {
@@ -860,52 +1423,86 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             return string.IsNullOrWhiteSpace(result) ? "Category" : result;
         }
 
-        /// <summary>公用图元按钮点击处理：选择构件并读取资源、属性和预览。</summary>
+        /// <summary>公用模型按钮点击处理：选择具体模型资源并读取属性和预览。</summary>
         private async void SolidWorksPublicElementButton_Click(object sender, RoutedEventArgs e)
         {
-            if (!(sender is Button button) || !(button.Tag is SolidWorksResourceApiService.ElementDto element)) return;
+            if (!(sender is Button button) || !(button.Tag is SolidWorksModelButtonTag model)) return;
 
-            SolidWorksFileLogger.Start("选择 SolidWorks 公用图元；构件ID=" + element.Id);
+            if (_suppressNextSolidWorksPublicElementClick)
+            {
+                bool withinDoubleClick = DateTime.UtcNow <= _suppressSolidWorksPublicElementClickUntil;
+                _suppressNextSolidWorksPublicElementClick = false;
+                if (withinDoubleClick)
+                {
+                    SolidWorksFileLogger.Info("已抑制双击序列产生的第二次模型按钮 Click；资源ID=" + model.Resource.Id + "。");
+                    return;
+                }
+            }
+
+            _pendingSolidWorksPublicElementClick = model;
+            if (_solidWorksPublicElementClickTimer == null)
+            {
+                _solidWorksPublicElementClickTimer = new DispatcherTimer(DispatcherPriority.Input)
+                {
+                    Interval = TimeSpan.FromMilliseconds(System.Windows.Forms.SystemInformation.DoubleClickTime)
+                };
+                _solidWorksPublicElementClickTimer.Tick += SolidWorksPublicElementClickTimer_Tick;
+            }
+            else
+            {
+                _solidWorksPublicElementClickTimer.Stop();
+            }
+            _solidWorksPublicElementClickTimer.Start();
+            SolidWorksFileLogger.Info("已排队单击 SolidWorks 模型预览；等待系统双击判定时间，资源ID=" + model.Resource.Id + "。");
+        }
+
+        private async void SolidWorksPublicElementClickTimer_Tick(object sender, EventArgs e)
+        {
+            _solidWorksPublicElementClickTimer?.Stop();
+            SolidWorksModelButtonTag model = _pendingSolidWorksPublicElementClick;
+            _pendingSolidWorksPublicElementClick = null;
+            if (model == null) return;
+
+            await LoadSelectedSolidWorksPublicElementAsync(model);
+        }
+
+        private async Task LoadSelectedSolidWorksPublicElementAsync(SolidWorksModelButtonTag model)
+        {
+            if (model?.Element == null || model.Resource == null) return;
+
+            SolidWorksResourceApiService.ElementDto element = model.Element;
+            SolidWorksResourceApiService.ResourceDto resource = model.Resource;
+            SolidWorksFileLogger.Start("选择 SolidWorks 模型；构件ID=" + element.Id + "；资源ID=" + resource.Id);
             _selectedSolidWorksElement = element;
-            _selectedSolidWorksResource = null;
+            _selectedSolidWorksResource = resource;
             ClearSolidWorksPreview("正在加载所选 SolidWorks 图元的预览...");
-            TxtStatus.Text = "正在加载 SolidWorks 图元：" + (string.IsNullOrWhiteSpace(element.DisplayName) ? element.Name : element.DisplayName) + "。";
+            TxtStatus.Text = "正在加载 SolidWorks 模型：" + GetSolidWorksResourceDisplayName(resource, element) + "。";
 
             try
             {
                 EnsureSolidWorksResourceApi();
-                SolidWorksResourceApiService.ResourceListResponse response = await _solidWorksResourceApi.ListAsync(element.Id);
-                if (!response.Success)
-                {
-                    TxtStatus.Text = "图元资源查询失败：" + response.Message;
-                    return;
-                }
-
-                SolidWorksResourceApiService.ResourceDto resource = response.Resources.FirstOrDefault();
-                if (resource == null)
-                {
-                    ClearSolidWorksPreview("当前图元没有可显示的 SolidWorks 资源。");
-                    TxtStatus.Text = "图元已加载，但当前没有 SolidWorks 模型资源。";
-                    return;
-                }
-
-                _selectedSolidWorksResource = resource;
                 SW_FileName.Text = resource.ResourceName ?? string.Empty;
-                SW_ClientVersion.Text = resource.ConfigurationName ?? string.Empty;
-                SW_FileSize.Text = resource.ResourceType ?? string.Empty;
+                SW_DisplayName.Text = resource.DisplayName ?? string.Empty;
                 await RefreshSolidWorksPropertiesAsync(element.Id);
                 // 点击按钮可能早于构造函数中的异步 WebView2 初始化，这里再次等待初始化完成，避免 3D 预览请求过早失败。
                 await InitializeThreeDPreviewAsync();
                  await PreloadSolidWorksResourceFilesAsync(resource);
-                TxtStatus.Text = "已加载 SolidWorks 图元资源和预览；资源数=" + response.Resources.Count + "。";
-                SolidWorksFileLogger.Complete("选择 SolidWorks 公用图元；构件ID=" + element.Id);
+                TxtStatus.Text = "已加载 SolidWorks 模型资源和预览；资源ID=" + resource.Id + "。";
+                SolidWorksFileLogger.Complete("选择 SolidWorks 模型；构件ID=" + element.Id + "；资源ID=" + resource.Id);
             }
              catch (Exception ex)
              {
-                 SolidWorksFileLogger.Failed("选择 SolidWorks 公用图元；构件ID=" + element.Id, ex);
-                 TxtStatus.Text = "加载 SolidWorks 图元失败：" + ex.Message;
+                 SolidWorksFileLogger.Failed("选择 SolidWorks 模型；构件ID=" + element.Id + "；资源ID=" + resource.Id, ex);
+                 TxtStatus.Text = "加载 SolidWorks 模型失败：" + ex.Message;
              }
          }
+
+        private static string GetSolidWorksResourceDisplayName(SolidWorksResourceApiService.ResourceDto resource, SolidWorksResourceApiService.ElementDto element)
+        {
+            if (!string.IsNullOrWhiteSpace(resource?.DisplayName)) return resource.DisplayName;
+            if (!string.IsNullOrWhiteSpace(resource?.ResourceName)) return resource.ResourceName;
+            return element?.Name ?? string.Empty;
+        }
 
         /// <summary>首次选择资源时预取模型、预览图片和三维附件，后续操作直接命中本地缓存。</summary>
         private async Task PreloadSolidWorksResourceFilesAsync(SolidWorksResourceApiService.ResourceDto resource)
@@ -951,64 +1548,75 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private void SW_CategoryTreeView_SelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
         {
-            _selectedSolidWorksCategoryNode = e.NewValue as SolidWorksCategoryNode;
-            Services.SolidWorksFileLogger.Info("点击/选择 SolidWorks 分类；分类ID=" + (_selectedSolidWorksCategoryNode?.Id.ToString() ?? "无") + "。" );
-            _ = RefreshSolidWorksElementsByCategoryAsync();
+            SolidWorksCategoryNode selectedNode = e.NewValue as SolidWorksCategoryNode;
+            if (selectedNode == null) return;
+            if (selectedNode.IsElement)
+            {
+                _selectedSolidWorksCategoryNode = FindParentCategoryNode(selectedNode);
+                _selectedSolidWorksElement = selectedNode.Element;
+                Services.SolidWorksFileLogger.Info("选择 SolidWorks 统一构件；构件ID=" + (_selectedSolidWorksElement?.Id.ToString() ?? "无") + "。" );
+                _selectedSolidWorksResource = null;
+                _ = LoadAdminElementDataAsync(_selectedSolidWorksElement.Id);
+                TxtStatus.Text = "已选择统一构件“" + selectedNode.DisplayText + "”，可以上传或更新 SolidWorks 图元。";
+                return;
+            }
+
+            _selectedSolidWorksCategoryNode = selectedNode;
+            _selectedSolidWorksElement = null;
+            _selectedSolidWorksResource = null;
+            Services.SolidWorksFileLogger.Info("点击/选择 SolidWorks 分类；分类ID=" + _selectedSolidWorksCategoryNode.Id + "。" );
+            SW_StroageFileDataGrid.ItemsSource = null;
+            SW_CategoryPropertiesDataGrid.ItemsSource = null;
+            TxtStatus.Text = selectedNode.Level == 1
+                ? "已选择子分类“" + selectedNode.DisplayText + "”，请在其下选择统一构件。"
+                : "已选择主分类“" + selectedNode.DisplayText + "”，请展开子分类。";
+        }
+
+        private SolidWorksCategoryNode FindParentCategoryNode(SolidWorksCategoryNode elementNode)
+        {
+            foreach (SolidWorksCategoryNode mainCategory in _solidWorksCategoryNodes)
+            {
+                SolidWorksCategoryNode parent = mainCategory.Children.FirstOrDefault(child => child.Children.Contains(elementNode));
+                if (parent != null) return parent;
+            }
+            return null;
         }
 
         /// <summary>分类树选中后，按分类 ID 加载统一构件；后续模型操作必须绑定到具体构件 ID。</summary>
-        private async Task RefreshSolidWorksElementsByCategoryAsync()
+        private async Task LoadSolidWorksElementsIntoCategoryAsync(SolidWorksCategoryNode categoryNode)
         {
-            if (_selectedSolidWorksCategoryNode == null) return;
+            if (categoryNode == null || categoryNode.IsElement) return;
             if (!_solidWorksAdministrator)
             {
-                TxtStatus.Text = "当前登录账号没有 SolidWorks 管理员权限，未查询统一构件。";
                 return;
             }
             try
             {
                 _solidWorksResourceApi = _solidWorksResourceApi ?? new SolidWorksResourceApiService(new SharedLoginSessionStore().Load());
-                SolidWorksResourceApiService.ElementListResponse response = await _solidWorksResourceApi.ListElementsByCategoryAsync(_selectedSolidWorksCategoryNode.Id);
+                SolidWorksResourceApiService.ElementListResponse response = await _solidWorksResourceApi.ListElementsByCategoryAsync(categoryNode.Id);
                 if (!response.Success)
                 {
-                    _solidWorksElementsByCategory = new List<SolidWorksResourceApiService.ElementDto>();
-                    SW_ElementSelectionComboBox.ItemsSource = null;
-                    TxtStatus.Text = "统一构件查询失败：" + response.Message;
+                    Services.SolidWorksFileLogger.Warning("加载子分类统一构件失败；分类ID=" + categoryNode.Id + "；" + response.Message);
                     return;
                 }
-                _solidWorksElementsByCategory = response.Elements ?? new List<SolidWorksResourceApiService.ElementDto>();
-                SW_ElementSelectionComboBox.SelectedItem = null;
-                SW_ElementSelectionComboBox.ItemsSource = _solidWorksElementsByCategory
-                    .Select(element => new SolidWorksElementSelectionItem
+                categoryNode.Children.RemoveAll(child => child.IsElement);
+                foreach (SolidWorksResourceApiService.ElementDto element in response.Elements ?? new List<SolidWorksResourceApiService.ElementDto>())
+                    categoryNode.Children.Add(new SolidWorksCategoryNode
                     {
-                        Id = element.Id,
-                        DisplayText = string.IsNullOrWhiteSpace(element.DisplayName) ? element.Name : element.DisplayName
-                    })
-                    .ToList();
-                TxtStatus.Text = _solidWorksElementsByCategory.Count == 0
-                    ? "分类 ID=" + _selectedSolidWorksCategoryNode.Id + " 查询成功，但没有绑定统一构件。请检查 ELEMENT_DEFINITIONS.CATEGORY_ID。"
-                    : "已选择分类 ID=" + _selectedSolidWorksCategoryNode.Id + "，构件数=" + _solidWorksElementsByCategory.Count + "。请在‘统一构件’下拉框选择具体构件。";
+                        Id = unchecked((int)Math.Min(element.Id, int.MaxValue)),
+                        ElementId = element.Id,
+                        Element = element,
+                        Name = element.Name,
+                        DisplayName = string.IsNullOrWhiteSpace(element.DisplayName) ? element.Name : element.DisplayName,
+                        SortOrder = int.MaxValue,
+                        Level = categoryNode.Level + 1,
+                        IsElement = true
+                    });
+                categoryNode.Children = categoryNode.Children.OrderBy(child => child.IsElement ? 1 : 0).ThenBy(child => child.SortOrder).ToList();
             }
             catch (Exception ex)
             {
-                Services.SolidWorksFileLogger.Warning("按分类加载 SolidWorks 构件失败：" + ex.Message);
-                TxtStatus.Text = "按分类加载构件失败：" + ex.Message;
-            }
-        }
-
-        private void SW_ElementSelectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (!(SW_ElementSelectionComboBox.SelectedItem is SolidWorksElementSelectionItem selected)) return;
-            Services.SolidWorksFileLogger.Info("选择 SolidWorks 统一构件；构件ID=" + selected.Id + "。" );
-            _selectedSolidWorksElement = _solidWorksElementsByCategory.FirstOrDefault(element => element.Id == selected.Id);
-            _selectedSolidWorksResource = null;
-            SW_StroageFileDataGrid.ItemsSource = null;
-            TxtStatus.Text = _selectedSolidWorksElement == null
-                ? "未找到所选统一构件。"
-                : "已选择统一构件 ID=" + _selectedSolidWorksElement.Id + "。现在可以上传或更新 SolidWorks 图元。";
-            if (_selectedSolidWorksElement != null)
-            {
-                _ = LoadAdminElementDataAsync(_selectedSolidWorksElement.Id);
+                Services.SolidWorksFileLogger.Warning("按子分类加载 SolidWorks 构件失败；分类ID=" + categoryNode.Id + "；" + ex.Message);
             }
         }
 
@@ -1076,8 +1684,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (_selectedSolidWorksResource != null)
             {
                 SW_FileName.Text = _selectedSolidWorksResource.ResourceName ?? string.Empty;
-                SW_ClientVersion.Text = _selectedSolidWorksResource.ConfigurationName ?? string.Empty;
-                SW_FileSize.Text = _selectedSolidWorksResource.ResourceType ?? string.Empty;
+                SW_DisplayName.Text = string.IsNullOrWhiteSpace(_selectedSolidWorksElement?.DisplayName)
+                    ? (_selectedSolidWorksElement?.Name ?? string.Empty)
+                    : _selectedSolidWorksElement.DisplayName;
                 TxtStatus.Text = "已选择 SolidWorks 资源 ID=" + _selectedSolidWorksResource.Id + "。";
                 _ = LoadAdminSolidWorksPreviewAsync(_selectedSolidWorksResource);
             }
@@ -1264,14 +1873,16 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         _selectedSolidWorksResource.Id,
                         SW_filePath.Text.Trim(),
                         string.IsNullOrWhiteSpace(SW_FileName.Text) ? _selectedSolidWorksResource.ResourceName : SW_FileName.Text.Trim(),
-                        string.IsNullOrWhiteSpace(SW_ClientVersion.Text) ? _selectedSolidWorksResource.ConfigurationName : SW_ClientVersion.Text.Trim());
+                        SW_DisplayName.Text.Trim(),
+                        _selectedSolidWorksResource.ConfigurationName);
                 }
                 else
                 {
-                    await _solidWorksResourceApi.UploadModelAsync(_selectedSolidWorksElement.Id, SW_filePath.Text.Trim(), SW_FileName.Text.Trim(), SW_ClientVersion.Text.Trim());
+                    await _solidWorksResourceApi.UploadModelAsync(_selectedSolidWorksElement.Id, SW_filePath.Text.Trim(), SW_FileName.Text.Trim(), SW_DisplayName.Text.Trim(), string.Empty);
                 }
                 TxtStatus.Text = "SolidWorks 模型更新成功。";
                 await RefreshAdminSolidWorksResourcesAsync();
+                await RefreshSolidWorksCategoryTreeAsync();
             }
             catch (Exception ex) { TxtStatus.Text = "更新 SolidWorks 模型失败：" + ex.Message; }
         }
@@ -1299,6 +1910,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (dialog.ShowDialog() != true) return;
             try
             {
+                if (attachmentType == "PREVIEW_3D")
+                    SW_viewFilePath复制__C_.Text = dialog.FileName;
                 // 选择本地 GLB/GLTF 后先立即预览，上传成功后再从服务器附件重新加载验证。
                 if (attachmentType == "PREVIEW_3D")
                 {
@@ -1345,23 +1958,28 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             catch (Exception ex) { TxtStatus.Text = "归档 SolidWorks 资源失败：" + ex.Message; }
         }
 
-        private sealed class SolidWorksElementSelectionItem
+        private sealed class SolidWorksModelButtonTag
         {
-            public long Id { get; set; }
-            public string DisplayText { get; set; } = string.Empty;
+            public SolidWorksResourceApiService.ElementDto Element { get; set; }
+            public SolidWorksResourceApiService.ResourceDto Resource { get; set; }
         }
 
         private sealed class SolidWorksCategoryNode
         {
             public int Id { get; set; }
+            public long ElementId { get; set; }
             public int ParentId { get; set; }
             public string Name { get; set; } = string.Empty;
             public string DisplayName { get; set; } = string.Empty;
             public int SortOrder { get; set; }
             public int Level { get; set; }
             public bool IsExpanded { get; set; }
+            public bool IsElement { get; set; }
+            public SolidWorksResourceApiService.ElementDto Element { get; set; }
             public List<SolidWorksCategoryNode> Children { get; set; } = new List<SolidWorksCategoryNode>();
-            public string DisplayText => string.IsNullOrWhiteSpace(DisplayName) ? Name : DisplayName;
+            public string DisplayText => IsElement
+                ? "统一构件：" + (string.IsNullOrWhiteSpace(DisplayName) ? Name : DisplayName)
+                : (string.IsNullOrWhiteSpace(DisplayName) ? Name : DisplayName);
         }
 
         private sealed class SolidWorksCategoryEditorResult
@@ -1849,18 +2467,233 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             await RefreshSolidWorksCategoryTreeAsync();
         }
 
-        /// <summary>右键菜单打开时同步当前节点，确保主分类和子分类操作使用正确的分类 ID。</summary>
+        /// <summary>每个树节点单独创建并缓存右键菜单，避免 WPF 多元素共享同一 Popup 实例。</summary>
+        private void SW_CategoryTreeItem_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+        {
+            TreeViewItem treeViewItem = sender as TreeViewItem;
+            if (treeViewItem == null) return;
+
+            if (treeViewItem.ContextMenu == null)
+            {
+                ContextMenu menu = new ContextMenu();
+                menu.Opened += SW_CategoryContextMenu_Opened;
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("添加(主)分类", SW_NewCategory_MenuItem_Click));
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("添加(子)分类", SW_AddSubcategory_MenuItem_Click));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(修改)分类", SW_Edit_MenuItem_Click));
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(删除)分类", SW_Delete_MenuItem_Click));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(新增)统一构件", SW_NewElement_MenuItem_Click));
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(修改)统一构件", SW_EditElement_MenuItem_Click));
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(删除)统一构件", SW_DeleteElement_MenuItem_Click));
+                menu.Items.Add(new Separator());
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(展开\\折叠架构", SW_展开_折叠架构_Click));
+                menu.Items.Add(CreateSolidWorksCategoryMenuItem("(刷新)架构树", SW_刷新架构树按钮_Click));
+                treeViewItem.ContextMenu = menu;
+            }
+        }
+
+        private static MenuItem CreateSolidWorksCategoryMenuItem(string header, RoutedEventHandler clickHandler)
+        {
+            MenuItem item = new MenuItem { Header = header };
+            item.Click += clickHandler;
+            return item;
+        }
+
+        /// <summary>右键菜单打开时同步当前节点，确保操作使用实际右键节点。</summary>
         private void SW_CategoryContextMenu_Opened(object sender, RoutedEventArgs e)
         {
             ContextMenu contextMenu = sender as ContextMenu;
             TreeViewItem treeViewItem = contextMenu?.PlacementTarget as TreeViewItem;
             if (treeViewItem == null) return;
 
-            // 右键操作以菜单附着节点为准，避免使用上一次左键选中的分类。
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
+            // 仅记录操作目标；菜单显示期间不切换键盘焦点，以免 Popup 因失焦立即关闭。
             _selectedSolidWorksCategoryNode = treeViewItem.DataContext as SolidWorksCategoryNode;
             Services.SolidWorksFileLogger.Info("打开 SolidWorks 分类右键菜单；分类ID=" + (_selectedSolidWorksCategoryNode?.Id.ToString() ?? "无") + "。" );
+
+            bool isSubcategory = _selectedSolidWorksCategoryNode != null && !_selectedSolidWorksCategoryNode.IsElement && _selectedSolidWorksCategoryNode.Level == 1;
+            bool isElement = _selectedSolidWorksCategoryNode != null && _selectedSolidWorksCategoryNode.IsElement;
+            foreach (object item in contextMenu.Items)
+            {
+                MenuItem menuItem = item as MenuItem;
+                if (menuItem == null) continue;
+                if (menuItem.Header as string == "新增统一构件") menuItem.Visibility = isSubcategory ? Visibility.Visible : Visibility.Collapsed;
+                if (menuItem.Header as string == "修改统一构件" || menuItem.Header as string == "删除统一构件") menuItem.Visibility = isElement ? Visibility.Visible : Visibility.Collapsed;
+                if (menuItem.Header as string == "修改分类" || menuItem.Header as string == "删除分类") menuItem.Visibility = !isElement ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+
+        private sealed class SolidWorksElementEditorResult
+        {
+            public string ElementCode;
+            public string Name;
+            public string DisplayName;
+            public string ElementType;
+            public string Discipline;
+            public string StandardNo;
+            public string Description;
+            public string Status;
+        }
+
+        private SolidWorksElementEditorResult PromptSolidWorksElement(
+            SolidWorksResourceApiService.ElementDto source,
+            string title,
+            bool displayNameOnly = false,
+            SolidWorksCategoryNode categoryDefaults = null)
+        {
+            TextBox code = new TextBox { Text = source?.ElementCode ?? string.Empty };
+            TextBox name = new TextBox { Text = source?.Name ?? string.Empty };
+            TextBox displayName = new TextBox { Text = source?.DisplayName ?? string.Empty };
+            TextBox elementType = new TextBox { Text = source?.ElementType ?? GetCommonCategoryElementValue(categoryDefaults, element => element.ElementType, 1) };
+            TextBox discipline = new TextBox { Text = source?.Discipline ?? GetCategoryDiscipline(categoryDefaults) };
+            TextBox standardNo = new TextBox { Text = source?.StandardNo ?? GetCommonCategoryElementValue(categoryDefaults, element => element.StandardNo, 1) };
+            TextBox description = new TextBox { Text = source?.Description ?? GetCommonCategoryElementValue(categoryDefaults, element => element.Description, 2) };
+            TextBox status = new TextBox { Text = string.IsNullOrWhiteSpace(source?.Status) ? "DRAFT" : source.Status };
+            List<Tuple<string, Control>> fields = displayNameOnly
+                ? new List<Tuple<string, Control>> { Tuple.Create("统一构件显示名称", (Control)displayName) }
+                : new List<Tuple<string, Control>>
+            {
+                Tuple.Create("构件编码", (Control)code),
+                Tuple.Create("构件名称", (Control)name),
+                Tuple.Create("显示名称", (Control)displayName),
+                Tuple.Create("构件类型", (Control)elementType),
+                Tuple.Create("专业", (Control)discipline),
+                Tuple.Create("标准号", (Control)standardNo),
+                Tuple.Create("描述", (Control)description),
+                Tuple.Create("状态", (Control)status)
+            };
+            Window dialog = CreateEditorWindow(title, fields);
+            Window owner = Window.GetWindow(this);
+            if (owner != null)
+            {
+                dialog.Owner = owner;
+                dialog.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            }
+            if (displayNameOnly)
+                dialog.Loaded += (sender, args) => { displayName.Focus(); displayName.SelectAll(); };
+            if (dialog.ShowDialog() != true) return null;
+            if (displayNameOnly && string.IsNullOrWhiteSpace(displayName.Text))
+            {
+                MessageBox.Show("统一构件显示名称不能为空。", title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
+            if (!displayNameOnly && (string.IsNullOrWhiteSpace(code.Text) || string.IsNullOrWhiteSpace(name.Text))) return null;
+            return new SolidWorksElementEditorResult
+            {
+                ElementCode = displayNameOnly ? source.ElementCode : code.Text.Trim(),
+                Name = displayNameOnly ? source.Name : name.Text.Trim(),
+                DisplayName = displayNameOnly || !string.IsNullOrWhiteSpace(displayName.Text) ? displayName.Text.Trim() : name.Text.Trim(),
+                ElementType = displayNameOnly ? source.ElementType : elementType.Text.Trim(),
+                Discipline = displayNameOnly ? source.Discipline : discipline.Text.Trim(),
+                StandardNo = displayNameOnly ? source.StandardNo : standardNo.Text.Trim(),
+                Description = displayNameOnly ? source.Description : description.Text.Trim(),
+                Status = displayNameOnly ? source.Status : (string.IsNullOrWhiteSpace(status.Text) ? "DRAFT" : status.Text.Trim().ToUpperInvariant())
+            };
+        }
+
+        /// <summary>从实际所选子分类的主分类名称推导专业，并去掉仅用于排序的数字前缀。</summary>
+        private string GetCategoryDiscipline(SolidWorksCategoryNode subcategory)
+        {
+            if (subcategory == null) return string.Empty;
+            SolidWorksCategoryNode mainCategory = _solidWorksCategoryNodes.FirstOrDefault(category => category.Id == subcategory.ParentId);
+            string name = string.IsNullOrWhiteSpace(mainCategory?.Name) ? mainCategory?.DisplayName : mainCategory.Name;
+            return NormalizeSolidWorksCategoryName(name);
+        }
+
+        /// <summary>仅当同一子分类已有构件的字段值一致时，才将其用作可编辑的建议值。</summary>
+        private static string GetCommonCategoryElementValue(
+            SolidWorksCategoryNode category,
+            Func<SolidWorksResourceApiService.ElementDto, string> valueSelector,
+            int minimumCount)
+        {
+            List<string> values = (category?.Children ?? new List<SolidWorksCategoryNode>())
+                .Where(node => node.IsElement && node.Element != null)
+                .Select(node => valueSelector(node.Element))
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value.Trim())
+                .ToList();
+            if (values.Count < minimumCount) return string.Empty;
+            return values.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1 ? values[0] : string.Empty;
+        }
+
+        /// <summary>规范化分类显示名，例如将“01-工艺”转换为“工艺”。</summary>
+        private static string NormalizeSolidWorksCategoryName(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+            string normalized = value.Trim();
+            int separatorIndex = normalized.IndexOf('-');
+            if (separatorIndex > 0 && normalized.Substring(0, separatorIndex).All(char.IsDigit))
+                normalized = normalized.Substring(separatorIndex + 1).Trim();
+            return normalized;
+        }
+
+        private async void SW_NewElement_MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_solidWorksAdministrator || _solidWorksResourceApi == null || _selectedSolidWorksCategoryNode == null || _selectedSolidWorksCategoryNode.IsElement || _selectedSolidWorksCategoryNode.Level != 1) return;
+            SolidWorksElementEditorResult result = PromptSolidWorksElement(null, "新增统一构件", categoryDefaults: _selectedSolidWorksCategoryNode);
+            if (result == null) return;
+            try
+            {
+                SolidWorksResourceApiService.ElementResponse response = await _solidWorksResourceApi.CreateElementAsync(new SolidWorksResourceApiService.ElementRequest
+                {
+                    ElementCode = result.ElementCode,
+                    Name = result.Name,
+                    DisplayName = result.DisplayName,
+                    CategoryId = _selectedSolidWorksCategoryNode.Id,
+                    ElementType = result.ElementType,
+                    Discipline = result.Discipline,
+                    StandardNo = result.StandardNo,
+                    Description = result.Description,
+                    Status = result.Status
+                });
+                ShowSolidWorksCategoryResult(response.Success, response.Message, "新增统一构件");
+                if (response.Success) await RefreshSolidWorksCategoryTreeAsync();
+            }
+            catch (Exception ex) { ShowSolidWorksCategoryResult(false, ex.Message, "新增统一构件"); }
+        }
+
+        private async void SW_EditElement_MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_solidWorksAdministrator || _solidWorksResourceApi == null) return;
+            if (_selectedSolidWorksCategoryNode == null || !_selectedSolidWorksCategoryNode.IsElement || _selectedSolidWorksCategoryNode.Element == null)
+            {
+                Services.SolidWorksFileLogger.Warning("修改统一构件显示名称未执行：当前右键节点不是统一构件。" );
+                MessageBox.Show("请在【统一构件】节点上右键后选择“修改统一构件”。", "修改统一构件显示名称", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            SolidWorksElementEditorResult result = PromptSolidWorksElement(_selectedSolidWorksCategoryNode.Element, "修改统一构件显示名称", true);
+            if (result == null) return;
+            try
+            {
+                SolidWorksResourceApiService.ElementResponse response = await _solidWorksResourceApi.UpdateElementAsync(_selectedSolidWorksCategoryNode.Element.Id, new SolidWorksResourceApiService.ElementRequest
+                {
+                    ElementCode = result.ElementCode,
+                    Name = result.Name,
+                    DisplayName = result.DisplayName,
+                    CategoryId = _selectedSolidWorksCategoryNode.Element.CategoryId,
+                    ElementType = result.ElementType,
+                    Discipline = result.Discipline,
+                    StandardNo = result.StandardNo,
+                    Description = result.Description,
+                    Status = result.Status
+                });
+                ShowSolidWorksCategoryResult(response.Success, response.Message, "修改统一构件");
+                if (response.Success) await RefreshSolidWorksCategoryTreeAsync();
+            }
+            catch (Exception ex) { ShowSolidWorksCategoryResult(false, ex.Message, "修改统一构件"); }
+        }
+
+        private async void SW_DeleteElement_MenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_solidWorksAdministrator || _solidWorksResourceApi == null || _selectedSolidWorksCategoryNode == null || !_selectedSolidWorksCategoryNode.IsElement) return;
+            if (MessageBox.Show("确认归档统一构件“" + _selectedSolidWorksCategoryNode.DisplayText + "”？已有模型资源不会被物理删除。", "统一构件管理", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+            try
+            {
+                SolidWorksResourceApiService.OperationResponse response = await _solidWorksResourceApi.ArchiveElementAsync(_selectedSolidWorksCategoryNode.ElementId);
+                ShowSolidWorksCategoryResult(response.Success, response.Message, "删除统一构件");
+                if (response.Success) await RefreshSolidWorksCategoryTreeAsync();
+            }
+            catch (Exception ex) { ShowSolidWorksCategoryResult(false, ex.Message, "删除统一构件"); }
         }
 
         private async void SW_NewCategory_MenuItem_Click(object sender, RoutedEventArgs e)
@@ -1940,9 +2773,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             SW_filePath.Clear();
             SW_viewFilePath.Clear();
+            SW_viewFilePath复制__C_.Clear();
             SW_FileName.Clear();
-            SW_FileSize.Clear();
-            SW_ClientVersion.Clear();
+            SW_DisplayName.Clear();
             TxtStatus.Text = "已清空 SolidWorks 图元编辑输入。";
         }
         private async void SW_ApplyProperties_Btn_Click(object sender, RoutedEventArgs e)
@@ -1969,7 +2802,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 if (_selectedSolidWorksResource == null)
                 {
-                    TxtStatus.Text = "统一构件属性已应用。当前未选择资源，未更新资源元数据。";
+                    TxtStatus.Text = "统一构件属性已应用。请在资源列表中选择模型后再保存模型显示名称。";
                     return;
                 }
                 SolidWorksResourceApiService.DetailsResponse response = await _solidWorksResourceApi.UpdateDetailsAsync(_selectedSolidWorksResource.Id, new SolidWorksResourceApiService.DetailsRequest
@@ -1979,12 +2812,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     ResourcePath = _selectedSolidWorksResource.ResourcePath,
                     FileHash = _selectedSolidWorksResource.FileHash,
                     ResourceName = string.IsNullOrWhiteSpace(SW_FileName.Text) ? _selectedSolidWorksResource.ResourceName : SW_FileName.Text.Trim(),
-                    ConfigurationName = SW_ClientVersion.Text.Trim(),
+                    DisplayName = SW_DisplayName.Text.Trim(),
+                    ConfigurationName = _selectedSolidWorksResource.ConfigurationName,
                     Status = _selectedSolidWorksResource.Status,
                     IsDefault = _selectedSolidWorksResource.IsDefault
                 });
-                TxtStatus.Text = response.Success ? "统一构件属性和 SolidWorks 资源属性已应用。" : "应用资源属性失败：" + response.Message;
+                TxtStatus.Text = response.Success ? "统一构件属性和 SolidWorks 模型显示名称已应用。" : "应用资源属性失败：" + response.Message;
                 await RefreshAdminSolidWorksResourcesAsync();
+                if (response.Success) await RefreshSolidWorksCategoryTreeAsync();
             }
             catch (Exception ex) { TxtStatus.Text = "应用 SolidWorks 图元属性失败：" + ex.Message; }
         }
@@ -1998,14 +2833,16 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             try
             {
                 _solidWorksResourceApi = _solidWorksResourceApi ?? new SolidWorksResourceApiService(new SharedLoginSessionStore().Load());
-                SolidWorksResourceApiService.ResourceResponse uploadResponse = await _solidWorksResourceApi.UploadModelAsync(_selectedSolidWorksElement.Id, SW_filePath.Text.Trim(), SW_FileName.Text.Trim(), SW_ClientVersion.Text.Trim());
+                SolidWorksResourceApiService.ResourceResponse uploadResponse = await _solidWorksResourceApi.UploadModelAsync(_selectedSolidWorksElement.Id, SW_filePath.Text.Trim(), SW_FileName.Text.Trim(), SW_DisplayName.Text.Trim(), string.Empty);
                 if (!uploadResponse.Success)
                 {
                     TxtStatus.Text = "SolidWorks 图元上传失败：" + uploadResponse.Message;
                     return;
                 }
                 TxtStatus.Text = "SolidWorks 图元上传成功。";
+                _selectedSolidWorksResource = uploadResponse.Resource;
                 await RefreshAdminSolidWorksResourcesAsync();
+                await RefreshSolidWorksCategoryTreeAsync();
                 if (!string.IsNullOrWhiteSpace(SW_viewFilePath.Text))
                 {
                     SolidWorksResourceApiService.ResourceDto resource = uploadResponse.Resource;
@@ -2080,7 +2917,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _selectedSolidWorksElement.Id,
                     documentPath,
                     SW_FileName.Text.Trim(),
-                    SW_ClientVersion.Text.Trim());
+                    SW_DisplayName.Text.Trim(),
+                    string.Empty);
 
                 if (!uploadResponse.Success)
                 {
@@ -2089,7 +2927,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
 
                 TxtStatus.Text = "当前 SolidWorks 图形已入库。GLB/GLTF 三维预览需要另行上传。";
+                _selectedSolidWorksResource = uploadResponse.Resource;
                 await RefreshAdminSolidWorksResourcesAsync();
+                await RefreshSolidWorksCategoryTreeAsync();
             }
             catch (Exception ex)
             {

@@ -15,6 +15,7 @@
 2. `element_metadata_schema_dm.sql`
 3. `element_library_pilot_seed_dm.sql`（仅在需要初始化试点身份时执行）
 4. `upgrade_element_instance_schema_dm.sql`
+5. `upgrade_element_resource_display_name_dm.sql`（已有 ELEMENT_RESOURCES 表时执行；新表 schema 已包含此字段）
 
 撤销新增构件库结构时使用：
 
@@ -30,6 +31,7 @@
 2. `element_metadata_schema_mysql.sql`
 3. `element_library_pilot_seed_mysql.sql`（仅在需要初始化试点身份时执行）
 4. `upgrade_element_instance_schema_mysql.sql`
+5. `upgrade_element_resource_display_name_mysql.sql`（已有 element_resources 表时执行；新表 schema 已包含此字段）
 
 撤销新增构件库结构时使用：
 

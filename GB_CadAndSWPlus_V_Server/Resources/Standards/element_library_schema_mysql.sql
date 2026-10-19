@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS element_resources (
 	resource_type VARCHAR(32) NOT NULL,
 	file_storage_id INT NULL,
 	resource_name VARCHAR(255) NULL,
+	display_name VARCHAR(255) NULL,
 	resource_path VARCHAR(1000) NULL,
 	file_hash VARCHAR(128) NULL,
 	version INT NOT NULL DEFAULT 1,

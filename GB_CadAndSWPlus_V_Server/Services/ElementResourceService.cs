@@ -45,7 +45,7 @@ public sealed class ElementResourceService
             }
 
             string sql = $@"UPDATE {Table(type)} SET resource_type={prefix}ResourceType,
- resource_name={prefix}ResourceName, resource_path={prefix}ResourcePath, file_hash={prefix}FileHash,
+ resource_name={prefix}ResourceName, display_name={prefix}DisplayName, resource_path={prefix}ResourcePath, file_hash={prefix}FileHash,
  configuration_name={prefix}ConfigurationName, status={prefix}Status, is_default={prefix}IsDefault,
  updated_by={prefix}OperatorName, updated_at={prefix}Now
  WHERE id={prefix}Id AND element_definition_id={prefix}ElementId AND platform={prefix}Platform";
@@ -56,6 +56,7 @@ public sealed class ElementResourceService
                 Platform = request.Platform.Trim().ToUpperInvariant(),
                 ResourceType = request.ResourceType.Trim().ToUpperInvariant(),
                 ResourceName = request.ResourceName?.Trim(),
+                DisplayName = request.DisplayName?.Trim(),
                 ResourcePath = request.ResourcePath?.Trim(),
                 FileHash = request.FileHash?.Trim(),
                 ConfigurationName = request.ConfigurationName?.Trim(),
@@ -125,8 +126,8 @@ public sealed class ElementResourceService
             }
 
             string insertSql = $@"INSERT INTO {Table(type)}
- (id, element_definition_id, platform, resource_type, file_storage_id, resource_name, resource_path, file_hash, version, configuration_name, status, is_default, created_by, updated_by, created_at, updated_at)
- VALUES ({prefix}Id, {prefix}ElementId, {prefix}Platform, {prefix}ResourceType, {prefix}FileStorageId, {prefix}ResourceName, {prefix}ResourcePath, {prefix}FileHash, 1, {prefix}ConfigurationName, {prefix}Status, {prefix}IsDefault, {prefix}OperatorName, {prefix}OperatorName, {prefix}Now, {prefix}Now)";
+ (id, element_definition_id, platform, resource_type, file_storage_id, resource_name, display_name, resource_path, file_hash, version, configuration_name, status, is_default, created_by, updated_by, created_at, updated_at)
+ VALUES ({prefix}Id, {prefix}ElementId, {prefix}Platform, {prefix}ResourceType, {prefix}FileStorageId, {prefix}ResourceName, {prefix}DisplayName, {prefix}ResourcePath, {prefix}FileHash, 1, {prefix}ConfigurationName, {prefix}Status, {prefix}IsDefault, {prefix}OperatorName, {prefix}OperatorName, {prefix}Now, {prefix}Now)";
             await connection.ExecuteAsync(new CommandDefinition(insertSql, new
             {
                 Id = id,
@@ -135,6 +136,7 @@ public sealed class ElementResourceService
                 ResourceType = request.ResourceType.Trim().ToUpperInvariant(),
                 request.FileStorageId,
                 ResourceName = request.ResourceName?.Trim(),
+                DisplayName = request.DisplayName?.Trim(),
                 ResourcePath = request.ResourcePath?.Trim(),
                 FileHash = request.FileHash?.Trim(),
                 ConfigurationName = request.ConfigurationName?.Trim(),
@@ -192,7 +194,7 @@ public sealed class ElementResourceService
     }
 
     private string SelectSql(string type) => $@"SELECT id AS Id, element_definition_id AS ElementDefinitionId, platform AS Platform,
- resource_type AS ResourceType, file_storage_id AS FileStorageId, resource_name AS ResourceName,
+ resource_type AS ResourceType, file_storage_id AS FileStorageId, resource_name AS ResourceName, display_name AS DisplayName,
  resource_name AS OriginalFileName,
  resource_path AS ResourcePath, file_hash AS FileHash, version AS Version, configuration_name AS ConfigurationName,
  status AS Status, is_default AS IsDefault, created_by AS CreatedBy, updated_by AS UpdatedBy,

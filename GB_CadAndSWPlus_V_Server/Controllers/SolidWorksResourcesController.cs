@@ -50,8 +50,9 @@ public sealed class SolidWorksResourcesController : ControllerBase
     [RequestSizeLimit(1024L * 1024L * 1024L)]
     public async Task<ActionResult<ElementResourceResponse>> ReplaceModelAsync(
         long resourceId,
-        [FromForm] IFormFile file,
+        IFormFile file,
         [FromForm] string? resourceName,
+        [FromForm] string? displayName,
         [FromForm] string? configurationName,
         CancellationToken cancellationToken)
     {
@@ -60,7 +61,7 @@ public sealed class SolidWorksResourcesController : ControllerBase
         try
         {
             ElementResourceResponse response = await _solidWorksResourceService
-                .ReplaceModelAsync(resourceId, file, resourceName, configurationName, operatorName, cancellationToken)
+                .ReplaceModelAsync(resourceId, file, resourceName, displayName, configurationName, operatorName, cancellationToken)
                 .ConfigureAwait(false);
             return response.Success ? Ok(response) : NotFound(response);
         }
@@ -92,6 +93,7 @@ public sealed class SolidWorksResourcesController : ControllerBase
             Platform = "SOLIDWORKS",
             ResourceType = string.IsNullOrWhiteSpace(request.ResourceType) ? current.Resource.ResourceType : request.ResourceType,
             ResourceName = request.ResourceName,
+            DisplayName = request.DisplayName ?? current.Resource.DisplayName,
             ConfigurationName = request.ConfigurationName,
             ResourcePath = string.IsNullOrWhiteSpace(request.ResourcePath) ? current.Resource.ResourcePath : request.ResourcePath,
             FileHash = string.IsNullOrWhiteSpace(request.FileHash) ? current.Resource.FileHash : request.FileHash,
@@ -159,8 +161,9 @@ public sealed class SolidWorksResourcesController : ControllerBase
     [RequestSizeLimit(1024L * 1024L * 1024L)]
     public async Task<ActionResult<ElementResourceResponse>> UploadModelAsync(
         long elementId,
-        [FromForm] IFormFile file,
+        IFormFile file,
         [FromForm] string? resourceName,
+        [FromForm] string? displayName,
         [FromForm] string? configurationName,
         CancellationToken cancellationToken)
     {
@@ -174,7 +177,7 @@ public sealed class SolidWorksResourcesController : ControllerBase
         try
         {
             ElementResourceResponse response = await _solidWorksResourceService
-                .UploadModelAsync(elementId, file, resourceName, configurationName, operatorName, cancellationToken)
+                .UploadModelAsync(elementId, file, resourceName, displayName, configurationName, operatorName, cancellationToken)
                 .ConfigureAwait(false);
             _logger.LogInformation("SolidWorks 模型上传处理完成。ElementId={ElementId}, ResourceId={ResourceId}, Success={Success}", elementId, response.Resource?.Id, response.Success);
             return Ok(response);
@@ -191,7 +194,7 @@ public sealed class SolidWorksResourcesController : ControllerBase
     [RequestSizeLimit(100L * 1024L * 1024L)]
     public async Task<ActionResult<SolidWorksResourceAttachmentResponse>> UploadAttachmentAsync(
         long resourceId,
-        [FromForm] IFormFile file,
+        IFormFile file,
         [FromForm] string attachmentType,
         CancellationToken cancellationToken)
     {

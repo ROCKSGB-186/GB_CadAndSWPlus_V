@@ -17,9 +17,15 @@
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <RegisterForComInterop>false</RegisterForComInterop>
     <ComVisible>true</ComVisible>
-    <AssemblyVersion>3.26.1010.181</AssemblyVersion>
-    <FileVersion>3.26.1010.181</FileVersion>
-    <Version>3.26.1010.181</Version>
+    <AssemblyVersion>3.26.1013.188</AssemblyVersion>
+    <FileVersion>3.26.1013.188</FileVersion>
+    <Version>3.26.1013.188</Version>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Optimize>False</Optimize>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Optimize>True</Optimize>
   </PropertyGroup>
 
   <ItemGroup>
@@ -62,7 +68,7 @@
     <PackageReference Include="Xarial.XCad.SolidWorks" Version="0.8.3" />
     <PackageReference Include="Xarial.XCad.Toolkit" Version="0.8.3" />
     <!-- 使用 WebView2 承载本地 GLB/GLTF 轻量三维预览页面。 -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2903.40" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>
 
   <ItemGroup>
@@ -86,13 +92,6 @@
       <AutoGen>True</AutoGen>
       <DependentUpon>Resource.resx</DependentUpon>
     </Compile>
-    <Compile Update="DisplayPages\SolidWorksAdministrationView.xaml.cs">
-      <DependentUpon>SolidWorksAdministrationView.xaml</DependentUpon>
-    </Compile>
-    <Page Update="DisplayPages\SolidWorksAdministrationView.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
   </ItemGroup>
 
   <ItemGroup>
@@ -113,7 +112,6 @@
     </PropertyGroup>
 
     <Message Importance="High" Text="Registering current SolidWorks AddIn DLL: $(TargetPath)" />
-    <Exec Command="&quot;$(RegAsmTool)&quot; &quot;$(TargetPath)&quot; /codebase"
-          Condition="Exists('$(TargetPath)')" />
+    <Exec Command="&quot;$(RegAsmTool)&quot; &quot;$(TargetPath)&quot; /codebase" Condition="Exists('$(TargetPath)')" />
   </Target>
 </Project>

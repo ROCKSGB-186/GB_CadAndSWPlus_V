@@ -15,7 +15,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _rootDirectory = Path.Combine(localApplicationData, "GB_CADPLUS", "SolidWorksCache");
         }
 
-        /// <summary>获取模型缓存路径；模型文件名优先使用服务端返回的 ORIGINAL_FILE_NAME。</summary>
+        /// <summary>按资源 ID、版本和文件哈希隔离模型缓存，同时保留服务端原始文件名。</summary>
         public string GetModelPath(SolidWorksResourceApiService.ResourceDto resource, string extension)
         {
             if (resource == null) throw new ArgumentNullException(nameof(resource));
@@ -26,7 +26,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 safeFileName = resource.Id.ToString();
             if (string.IsNullOrWhiteSpace(Path.GetExtension(safeFileName)))
                 safeFileName += safeExtension;
-            return Path.Combine(_rootDirectory, "Models", safeFileName);
+
+            // 资源 ID 防止不同资源同名冲突，版本和哈希确保模型更新后不再命中旧文件。
+            string hash = MakeSafeFileName(resource.FileHash ?? string.Empty, string.Empty);
+            if (hash.Length > 12)
+                hash = hash.Substring(0, 12);
+            string cacheIdentity = resource.Id + "_v" + resource.Version +
+                (string.IsNullOrWhiteSpace(hash) ? string.Empty : "_" + hash);
+            return Path.Combine(_rootDirectory, "Models", cacheIdentity, safeFileName);
         }
 
         /// <summary>获取指定预览附件的缓存路径。</summary>

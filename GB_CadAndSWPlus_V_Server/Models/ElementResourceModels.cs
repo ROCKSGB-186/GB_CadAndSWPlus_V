@@ -5,6 +5,7 @@ public sealed class ElementResourceRequest
     public long ElementDefinitionId { get; init; }
     public string Platform { get; init; } = string.Empty;
     public string ResourceType { get; init; } = string.Empty;
+    public string? DisplayName { get; init; }
     public int? FileStorageId { get; init; }
     public string? ResourceName { get; init; }
     public string? ResourcePath { get; init; }
@@ -20,6 +21,7 @@ public sealed class ElementResourceDto
     public long ElementDefinitionId { get; init; }
     public string Platform { get; init; } = string.Empty;
     public string ResourceType { get; init; } = string.Empty;
+    public string DisplayName { get; init; } = string.Empty;
     public int? FileStorageId { get; init; }
     public string ResourceName { get; init; } = string.Empty;
     public string OriginalFileName { get; init; } = string.Empty;

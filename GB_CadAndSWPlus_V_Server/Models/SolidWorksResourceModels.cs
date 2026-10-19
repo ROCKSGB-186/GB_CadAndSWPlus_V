@@ -8,6 +8,7 @@ public sealed class SolidWorksResourceDetailsRequest
     public string? ResourcePath { get; init; }
     public string? FileHash { get; init; }
     public string? ResourceName { get; init; }
+    public string? DisplayName { get; init; }
     public string? ConfigurationName { get; init; }
     public string? Status { get; init; }
     public bool? IsDefault { get; init; }

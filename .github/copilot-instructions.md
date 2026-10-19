@@ -20,6 +20,8 @@
 - 用户要求修改时必须同时保留 CAD 与 SolidWorks 两端原有页面内容，不得为了接入 Shared 控件删除或覆盖已复制的“工具设置”“管理员模块”“部门\人员模块”；方案必须完整检查两端 TabControl 内容并避免只修一端。
 - SolidWorks 图元管理操作应与 CAD 保持一致：在 RightResourceLibrary 的【管理员模块】中先选择分类/子分类取得分类 ID，再执行 SolidWorks 图元上传、更新、删除及预览附件管理；不在独立 SW图元管理 Tab 中重复维护操作。
 - 数据库主分类名称包含排序前缀，格式为“数字-分类名称”（例如“00-共用图元”“01-工艺”“02-建筑”）；匹配 SolidWorks TabItem 时必须去除数字和连接符，仅使用连接符后的分类名称，前缀仅用于数据库排序。
+- SolidWorks 模型显示名称 DISPLAY_NAME 应属于保存 SW 模型图元的 ELEMENT_RESOURCES 资源记录，用于逐个模型生成按键；不能误放在 element_definitions 统一构件表。
+- SolidWorks 管理员模块【修改统一构件】操作的目标是修改该统一构件的 DISPLAY_NAME，而不是修改其 NAME 或各个 ELEMENT_RESOURCES 模型资源的 DISPLAY_NAME。
 
 ## 代码风格
 - 用户偏好：后续生成或修改的代码中，每一步和关键逻辑尽量加入清晰的中文注释。

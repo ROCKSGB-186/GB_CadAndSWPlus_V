@@ -52,7 +52,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         }
 
         /// <summary>替换已选资源对应的模型文件，并保留原资源 ID。</summary>
-        public async Task<ResourceResponse> ReplaceModelAsync(long resourceId, string filePath, string resourceName, string configurationName, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<ResourceResponse> ReplaceModelAsync(long resourceId, string filePath, string resourceName, string displayName, string configurationName, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (!File.Exists(filePath)) throw new FileNotFoundException("SolidWorks 模型文件不存在。", filePath);
             using (var content = new MultipartFormDataContent())
@@ -62,6 +62,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
                 content.Add(fileContent, "file", Path.GetFileName(filePath));
                 content.Add(new StringContent(resourceName ?? string.Empty), "resourceName");
+                content.Add(new StringContent(displayName ?? string.Empty), "displayName");
                 content.Add(new StringContent(configurationName ?? string.Empty), "configurationName");
                 return await SendMultipartAsync<ResourceResponse>(HttpMethod.Put, "api/solidworks-resources/resources/" + resourceId + "/model", content, cancellationToken).ConfigureAwait(false);
             }
@@ -71,10 +72,22 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             => SendJsonAsync<ResourceListResponse>(HttpMethod.Get, "api/solidworks-resources/elements/" + elementId, null, cancellationToken);
 
         /// <summary>按管理员模块当前选中的统一分类查询构件定义。</summary>
-        public Task<ElementListResponse> ListElementsByCategoryAsync(int categoryId, CancellationToken cancellationToken = default(CancellationToken))
-            => SendJsonAsync<ElementListResponse>(HttpMethod.Get, "api/elements?categoryId=" + categoryId + "&platform=SOLIDWORKS", null, cancellationToken);
+        public Task<ElementListResponse> ListElementsByCategoryAsync(int categoryId, bool requireModelResource = false, CancellationToken cancellationToken = default(CancellationToken))
+            => SendJsonAsync<ElementListResponse>(HttpMethod.Get, "api/elements?categoryId=" + categoryId + "&platform=SOLIDWORKS" + (requireModelResource ? "&requireResource=true" : string.Empty), null, cancellationToken);
 
-        public async Task<ResourceResponse> UploadModelAsync(long elementId, string filePath, string resourceName, string configurationName, CancellationToken cancellationToken = default(CancellationToken))
+        /// <summary>在指定子分类下新增 CAD 与 SolidWorks 共用的统一构件定义。</summary>
+        public Task<ElementResponse> CreateElementAsync(ElementRequest request, CancellationToken cancellationToken = default(CancellationToken))
+            => SendJsonAsync<ElementResponse>(HttpMethod.Post, "api/elements", request, cancellationToken);
+
+        /// <summary>修改统一构件定义；服务器端会递增构件版本。</summary>
+        public Task<ElementResponse> UpdateElementAsync(long elementId, ElementRequest request, CancellationToken cancellationToken = default(CancellationToken))
+            => SendJsonAsync<ElementResponse>(HttpMethod.Put, "api/elements/" + elementId, request, cancellationToken);
+
+        /// <summary>归档统一构件定义，不直接物理删除历史数据。</summary>
+        public Task<OperationResponse> ArchiveElementAsync(long elementId, CancellationToken cancellationToken = default(CancellationToken))
+            => SendJsonAsync<OperationResponse>(HttpMethod.Delete, "api/elements/" + elementId, null, cancellationToken);
+
+        public async Task<ResourceResponse> UploadModelAsync(long elementId, string filePath, string resourceName, string displayName, string configurationName, CancellationToken cancellationToken = default(CancellationToken))
         {
             if (!File.Exists(filePath)) throw new FileNotFoundException("SolidWorks 模型文件不存在。", filePath);
             using (var content = new MultipartFormDataContent())
@@ -84,6 +97,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
                 content.Add(fileContent, "file", Path.GetFileName(filePath));
                 content.Add(new StringContent(resourceName ?? string.Empty), "resourceName");
+                content.Add(new StringContent(displayName ?? string.Empty), "displayName");
                 content.Add(new StringContent(configurationName ?? string.Empty), "configurationName");
                 return await SendMultipartAsync<ResourceResponse>(HttpMethod.Post, "api/solidworks-resources/elements/" + elementId + "/model", content, cancellationToken).ConfigureAwait(false);
             }
@@ -198,10 +212,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public sealed class ResourceListResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public List<ResourceDto> Resources { get; set; } = new List<ResourceDto>(); }
         public sealed class ElementListResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public List<ElementDto> Elements { get; set; } = new List<ElementDto>(); }
-        public sealed class ElementDto { public long Id { get; set; } public string ElementCode { get; set; } = string.Empty; public string Name { get; set; } = string.Empty; public string DisplayName { get; set; } = string.Empty; public int? CategoryId { get; set; } public string Status { get; set; } = string.Empty; }
+        public sealed class ElementDto { public long Id { get; set; } public string ElementCode { get; set; } = string.Empty; public string Name { get; set; } = string.Empty; public string DisplayName { get; set; } = string.Empty; public int? CategoryId { get; set; } public string ElementType { get; set; } = string.Empty; public string Discipline { get; set; } = string.Empty; public string StandardNo { get; set; } = string.Empty; public string Description { get; set; } = string.Empty; public string Status { get; set; } = string.Empty; }
+        public sealed class ElementRequest { public string ElementCode { get; set; } = string.Empty; public string Name { get; set; } = string.Empty; public string DisplayName { get; set; } = string.Empty; public int? CategoryId { get; set; } public string ElementType { get; set; } = string.Empty; public string Discipline { get; set; } = string.Empty; public string StandardNo { get; set; } = string.Empty; public string Description { get; set; } = string.Empty; public string Status { get; set; } = "DRAFT"; }
+        public sealed class ElementResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public ElementDto Element { get; set; } }
         public sealed class ResourceResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public ResourceDto Resource { get; set; } }
-        public sealed class ResourceDto { public long Id { get; set; } public long ElementDefinitionId { get; set; } public string Platform { get; set; } = string.Empty; public string ResourceType { get; set; } = string.Empty; public string ResourceName { get; set; } = string.Empty; public string OriginalFileName { get; set; } = string.Empty; public string ResourcePath { get; set; } = string.Empty; public string FileHash { get; set; } = string.Empty; public int Version { get; set; } public string ConfigurationName { get; set; } = string.Empty; public string Status { get; set; } = string.Empty; public bool IsDefault { get; set; } }
-        public sealed class DetailsRequest { public long ElementDefinitionId { get; set; } public string ResourceType { get; set; } public string ResourcePath { get; set; } public string FileHash { get; set; } public string ResourceName { get; set; } public string ConfigurationName { get; set; } public string Status { get; set; } public bool IsDefault { get; set; } }
+        public sealed class ResourceDto { public long Id { get; set; } public long ElementDefinitionId { get; set; } public string Platform { get; set; } = string.Empty; public string ResourceType { get; set; } = string.Empty; public string ResourceName { get; set; } = string.Empty; public string DisplayName { get; set; } = string.Empty; public string OriginalFileName { get; set; } = string.Empty; public string ResourcePath { get; set; } = string.Empty; public string FileHash { get; set; } = string.Empty; public int Version { get; set; } public string ConfigurationName { get; set; } = string.Empty; public string Status { get; set; } = string.Empty; public bool IsDefault { get; set; } }
+        public sealed class DetailsRequest { public long ElementDefinitionId { get; set; } public string ResourceType { get; set; } public string ResourcePath { get; set; } public string FileHash { get; set; } public string ResourceName { get; set; } public string DisplayName { get; set; } public string ConfigurationName { get; set; } public string Status { get; set; } public bool IsDefault { get; set; } }
         public sealed class DetailsResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public ResourceDto Resource { get; set; } }
         public sealed class AttachmentResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public AttachmentDto Attachment { get; set; } }
         public sealed class AttachmentListResponse { public bool Success { get; set; } public string Message { get; set; } = string.Empty; public List<AttachmentDto> Attachments { get; set; } = new List<AttachmentDto>(); }
