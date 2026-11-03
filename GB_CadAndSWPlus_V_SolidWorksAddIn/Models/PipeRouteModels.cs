@@ -77,6 +77,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Models
     {
         private readonly List<PipePoint3D> points = new List<PipePoint3D>();
         private readonly Stack<List<PipePoint3D>> history = new Stack<List<PipePoint3D>>();
+        private readonly bool trackHistory;
+
+        public PipeRouteDraft() : this(true) { }
+
+        internal PipeRouteDraft(bool trackHistory) { this.trackHistory = trackHistory; }
 
         /// <summary>返回独立快照，外部修改不会影响草稿。</summary>
         public IReadOnlyList<PipePoint3D> Points
@@ -150,6 +155,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Models
             return true;
         }
 
-        private void SaveHistory() { history.Push(new List<PipePoint3D>(points)); }
+        private void SaveHistory()
+        {
+            if (trackHistory) history.Push(new List<PipePoint3D>(points));
+        }
     }
 }
