@@ -135,7 +135,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services // 使用 SolidWorks 插件
             }
         }
 
-        private static string BuildUrl(string host, int port, string path) // 构造服务端 API 地址。
+        internal static string BuildUrl(string host, int port, string path) // 构造服务端 API 地址。
         {
             SolidWorksFileLogger.Info("构造 SolidWorks API 地址；端口=" + port + "；路径=" + path + "。");
             string normalizedHost = host?.Trim() ?? string.Empty; // 清理主机地址首尾空格。
