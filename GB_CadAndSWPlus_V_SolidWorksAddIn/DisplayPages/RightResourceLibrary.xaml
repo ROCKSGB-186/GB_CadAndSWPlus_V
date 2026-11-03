@@ -167,6 +167,16 @@
                                                             <WrapPanel x:Name="工艺处理按钮面板"
                                                                        Orientation="Horizontal"
                                                                        HorizontalAlignment="Stretch">
+                                                                <Button Width="95"
+                                                                        Height="25"
+                                                                        Margin="1,1,1,1"
+                                                                        Background="#FF0050A0"
+                                                                        BorderBrush="#FFC2C6CE"
+                                                                        Content="绘制管道"
+                                                                        ToolTip="路线选点试运行，当前不生成模型"
+                                                                        FontSize="12"
+                                                                        Foreground="White"
+                                                                        Click="DrawPipelineButton_Click" />
                                                                 <Button x:Name="_1"                                                                         
                                                                             Width="95"
                                                                             Height="25"

@@ -30,6 +30,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         private readonly SharedLoginSessionStore _sessionStore = new SharedLoginSessionStore(); // 创建与 CAD 和托盘共享的会话存储。
         private readonly UnifiedSolidWorksLoginService _loginService = new UnifiedSolidWorksLoginService(); // 创建 SolidWorks 登录服务。
         private IXCustomPanel<RightResourceLibrary>? _rightResourceLibrary; // 持有右侧资源库面板引用，确保其生命周期与插件一致。
+        private PipelineRoutePickingWindow? _pipelineRouteWindow;
 
         /// <summary>在 SolidWorks 连接插件时创建唯一的 XCAD 顶部命令组。</summary>
         public override void OnConnect() // XCAD 在插件连接完成后调用此方法。
@@ -45,6 +46,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         public override void OnDisconnect() // XCAD 在插件断开前调用此方法。
         {
             SolidWorksFileLogger.Start("SolidWorks 插件断开清理");
+            while (_pipelineRouteWindow != null && !_pipelineRouteWindow.CloseForShutdown("SolidWorks 插件断开"))
+            {
+                SolidWorksFileLogger.Error("插件断开时路线选点事件清理未完成。");
+                if (MessageBox.Show("路线选点事件未能完全清理。选择“是”重试；选择“否”继续断开，" +
+                    "但可能残留事件，请完全退出并重启 SolidWorks 后再重新启用插件。",
+                    "插件断开清理失败", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    break;
+            }
             if (_rightResourceLibrary?.IsControlCreated == true)
                 _rightResourceLibrary.Control.CancelDrawingInsertPointSelection("SolidWorks 插件断开");
             // 当前命令组由 XCAD 管理，断开时不重复创建或手动删除命令组。
@@ -65,6 +74,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 case TopMenuButton.Logout: // 处理退出按钮点击。
                     Logout(); // 清除共享认证信息。
                     break; // 结束退出命令处理。
+                case TopMenuButton.DrawPipeline:
+                    ShowPipelineRouteWindow();
+                    break;
                 default:
                     SolidWorksFileLogger.Skipped("顶部命令点击", "未识别的命令");
                     break;
@@ -76,6 +88,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         /// </summary>
         private void ShowLoginWindow() // 显示共享统一登录窗口。
         {
+            if (!ClosePipelineRouteWindow()) return;
             SolidWorksFileLogger.Start("打开统一登录窗口");
             var loginWindow = new UnifiedLoginWindow(UnifiedLoginPlatform.SolidWorks, _loginService, _sessionStore); // 创建 SolidWorks 平台登录窗口。
             loginWindow.Owner = null; // 不设置 SolidWorks COM 窗口为 WPF Owner，避免跨句柄导致窗口无法激活。
@@ -87,6 +100,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
 
         private void Logout() // 执行与托盘“退出登录”一致的认证清理操作。
         {
+            if (!ClosePipelineRouteWindow()) return;
             SolidWorksFileLogger.Start("退出 SolidWorks 平台账号");
             _sessionStore.ClearAuthentication(); // 清除共享访问令牌和加密密码，但保留服务器连接配置。
             SetResourceLibraryAuthenticationState(false); // 退出登录后立即隐藏资源库业务内容。
@@ -111,6 +125,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
             control.SW = Application.Sw; // 注入 SolidWorks 应用程序对象。
             control.LoginRequested -= ResourceLibrary_LoginRequested; // 防止 XCAD 重复触发初始化时重复绑定事件。
             control.LoginRequested += ResourceLibrary_LoginRequested; // 将登录链接连接到统一登录入口。
+            control.DrawPipelineRequested -= ResourceLibrary_DrawPipelineRequested;
+            control.DrawPipelineRequested += ResourceLibrary_DrawPipelineRequested;
+            control.IsPipelineRouteBusy = () => _pipelineRouteWindow != null;
             control.SetAuthenticationState(IsAuthenticated()); // 按共享会话初始化资源库状态。
             SolidWorksFileLogger.Complete("初始化右侧资源库面板");
         }
@@ -120,6 +137,76 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
         {
             SolidWorksFileLogger.Info("资源库登录链接被点击。");
             ShowLoginWindow(); // 与顶部统一登录命令使用同一登录入口，避免复制登录逻辑。
+        }
+
+        private void ResourceLibrary_DrawPipelineRequested(object sender, EventArgs e)
+        {
+            ShowPipelineRouteWindow();
+        }
+
+        private void ShowPipelineRouteWindow()
+        {
+            SolidWorksFileLogger.Start("打开绘管路线选点试运行");
+            if (_pipelineRouteWindow != null)
+            {
+                _pipelineRouteWindow.Activate();
+                SolidWorksFileLogger.Info("路线选点窗口已经打开，已切换到该窗口。");
+                return;
+            }
+            if (!IsAuthenticated())
+            {
+                SolidWorksFileLogger.Warning("尚未登录，不能启动绘管路线选点。");
+                MessageBox.Show("请先登录 CAD\\SOLIDWORKS 平台，再启动绘制管道。",
+                    "绘制管道", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (_rightResourceLibrary?.IsControlCreated == true &&
+                _rightResourceLibrary.Control.HasActiveSolidWorksInsertOperation)
+            {
+                SolidWorksFileLogger.Warning("SolidWorks 图元插入尚未结束，不能同时启动路线选点。");
+                MessageBox.Show("请先完成或取消当前图元插入，再启动路线选点。",
+                    "绘制管道", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            try
+            {
+                var application = Application.Sw as SolidWorks.Interop.sldworks.SldWorks
+                    ?? throw new InvalidOperationException("无法获取 SolidWorks 应用程序对象。");
+                var document = application.ActiveDoc as SolidWorks.Interop.sldworks.ModelDoc2
+                    ?? throw new InvalidOperationException("请先打开 SolidWorks 零件或装配体。");
+                PipelineRoutePickingWindow.EnsureReadyToPick(application, document);
+                var frame = application.Frame() as SolidWorks.Interop.sldworks.Frame
+                    ?? throw new InvalidOperationException("无法获取 SolidWorks 主窗口。");
+                if (MessageBox.Show("当前仅试运行路线选点，不生成或保存管道模型。\n\n" +
+                    "请先退出 SolidWorks 的草图及其他正在运行的命令。选点期间启动其他命令将暂停本次选点，可在结束命令后恢复。\n\n是否继续？",
+                    "绘制管道——路线选点试运行", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
+                {
+                    SolidWorksFileLogger.Info("用户取消启动路线选点试运行。");
+                    return;
+                }
+                var window = new PipelineRoutePickingWindow(application, document, new IntPtr(frame.GetHWndx64()));
+                _pipelineRouteWindow = window;
+                window.Closed += (sender, args) => { if (_pipelineRouteWindow == window) _pipelineRouteWindow = null; };
+                window.Show();
+                if (window.Start())
+                    SolidWorksFileLogger.Complete("打开绘管路线选点试运行");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                                       ex is COMException || ex is InvalidComObjectException ||
+                                       ex is System.ComponentModel.Win32Exception || ex is NotSupportedException)
+            {
+                SolidWorksFileLogger.Error("打开路线选点窗口失败：" + ex);
+                MessageBox.Show("无法打开路线选点窗口：" + ex.Message,
+                    "绘制管道", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _pipelineRouteWindow?.CloseForShutdown("启动失败");
+            }
+        }
+
+        private bool ClosePipelineRouteWindow()
+        {
+            if (_pipelineRouteWindow == null) return true;
+            _pipelineRouteWindow.Close();
+            return _pipelineRouteWindow == null;
         }
 
         /// <summary>根据共享会话判断当前是否存在未过期的认证令牌。</summary>

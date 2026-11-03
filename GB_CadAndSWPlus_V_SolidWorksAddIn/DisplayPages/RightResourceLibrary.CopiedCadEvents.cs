@@ -43,6 +43,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private DateTime _suppressSolidWorksPublicElementClickUntil;
         private Point _solidWorksButtonDragStartPoint;
         private object _drawingMouseObject;
+        private int _activeSolidWorksInsertOperations;
+        internal bool HasActiveSolidWorksInsertOperation => _activeSolidWorksInsertOperations > 0;
         private DMouseEvents_MouseSelectNotifyEventHandler _drawingMouseSelectHandler;
         private DMouseEvents_MouseLBtnDownNotifyEventHandler _drawingMouseDownHandler;
         private DMouseEvents_MouseMoveNotifyEventHandler _drawingMouseMoveHandler;
@@ -526,6 +528,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 return;
             }
 
+            if (IsPipelineRouteBusy?.Invoke() == true)
+            {
+                SolidWorksFileLogger.Warning("路线选点窗口尚未关闭，不能同时插入 SolidWorks 图元。");
+                TxtStatus.Text = "请先关闭路线选点窗口，再插入 SolidWorks 图元。";
+                return;
+            }
+            _activeSolidWorksInsertOperations++;
             SolidWorksFileLogger.Start("准备插入 SolidWorks 图元；构件ID=" + element.Id + "；方式=" + (dropPoint.HasValue ? "拖放" : "双击") +
                 "；配置=" + (selectedConfiguration ?? "资源默认") + "；显示状态=" + (selectedDisplayState ?? "模型默认"));
             bool previewModelOpened = false;
@@ -765,6 +774,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 SolidWorksFileLogger.Failed("插入 SolidWorks 图元；构件ID=" + element.Id, ex);
                 TxtStatus.Text = "插入 SolidWorks 图元失败：" + ex.Message;
+            }
+            finally
+            {
+                _activeSolidWorksInsertOperations--;
             }
         }
 

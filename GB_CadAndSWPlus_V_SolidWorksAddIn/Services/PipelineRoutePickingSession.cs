@@ -22,9 +22,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private readonly ModelView _view;
         private readonly SolidWorks.Interop.sldworks.Mouse _mouse;
         private readonly DMouseEvents_Event _mouseEvents;
+        private readonly DSldWorksEvents_Event _applicationEvents;
+        private readonly DSldWorksEvents_CommandOpenPreNotifyEventHandler _commandOpening;
         private readonly DMouseEvents_MouseMoveNotifyEventHandler _mouseMove;
         private readonly DMouseEvents_MouseLBtnDownNotifyEventHandler _mouseDown;
-        private readonly PipelineRouteSelectionSession _selection = new PipelineRouteSelectionSession();
+        private readonly PipelineRouteSelectionSession _selection;
         private readonly PipelineRoutePreviewSession _preview;
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _moveTimer;
@@ -38,6 +40,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         private bool _moveSubscribed;
         private bool _downSubscribed;
+        private bool _commandSubscribed;
         private bool _startAttempted;
         private bool _started;
         private bool _stopping;
@@ -48,6 +51,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private int _latestX;
         private int _latestY;
         private PipePoint3D? _candidate;
+        private PipelineRouteSelectionSession? _pausedSelection;
         private string _lastMessage = string.Empty;
 
         [StructLayout(LayoutKind.Sequential)]
@@ -66,7 +70,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             Func<PipePoint3D, PipePoint3D?, PipePoint3D?> confirmPoint,
             Action<PipePoint3D?> cursorChanged,
             Action<IReadOnlyList<PipePoint3D>, PipeWorkPlane> selectionChanged,
-            Action<string> message, Action<string> unexpectedStop)
+            Action<string> message, Action<string> unexpectedStop,
+            PipelineRouteSelectionSession? previousSelection = null)
         {
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _document = document ?? throw new ArgumentNullException(nameof(document));
@@ -75,6 +80,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _selectionChanged = selectionChanged ?? throw new ArgumentNullException(nameof(selectionChanged));
             _message = message ?? throw new ArgumentNullException(nameof(message));
             _unexpectedStop = unexpectedStop ?? throw new ArgumentNullException(nameof(unexpectedStop));
+            _selection = previousSelection?.CopySelecting() ?? new PipelineRouteSelectionSession();
             _preview = new PipelineRoutePreviewSession(application, document, OnPreviewStopped);
             _managedThreadId = Thread.CurrentThread.ManagedThreadId;
             _dispatcher = Dispatcher.CurrentDispatcher;
@@ -85,6 +91,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _mouse = _view.GetMouse() ?? throw new InvalidOperationException("无法获取路线拾点鼠标事件对象。");
             _mouseEvents = _mouse as DMouseEvents_Event ??
                 throw new InvalidOperationException("无法订阅路线拾点鼠标事件。");
+            _applicationEvents = application as DSldWorksEvents_Event ??
+                throw new InvalidOperationException("无法订阅 SolidWorks 命令事件。");
+            _commandOpening = OnCommandOpening;
             _mouseMove = OnMouseMove;
             _mouseDown = OnMouseDown;
             _moveTimer = new DispatcherTimer(DispatcherPriority.Background, _dispatcher)
@@ -112,10 +121,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 _moveSubscribed = true;
                 _mouseEvents.MouseLBtnDownNotify += _mouseDown;
                 _downSubscribed = true;
+                _applicationEvents.CommandOpenPreNotify += _commandOpening;
+                _commandSubscribed = true;
                 if (!IsCurrent()) throw new InvalidOperationException("订阅鼠标事件时活动文档或视图已切换。");
                 _started = true;
                 _moveTimer.Start();
                 _view.Activate();
+                if (_selection.Points.Count > 0) RefreshPreview();
             }
             catch (Exception ex) when (IsInputException(ex))
             {
@@ -211,6 +223,25 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         {
             RequireUiThread();
             DisposeCore();
+        }
+
+        /// <summary>只在事件清理完成后交出独立路线快照，避免新旧拾点会话重叠。</summary>
+        public PipelineRouteSelectionSession? CopyPausedSelection()
+        {
+            RequireUiThread();
+            return _disposed ? _pausedSelection?.CopySelecting() : null;
+        }
+
+        public bool HasPausedSelection => _pausedSelection != null;
+
+        private int OnCommandOpening(int command, int userCommand)
+        {
+            if (_started && !_stopping && !_disposed)
+            {
+                _pausedSelection = _selection.CopySelecting();
+                RequestStop("检测到 SolidWorks 新命令，路线选点已暂停；请结束该命令后点击“恢复选点”。");
+            }
+            return 0;
         }
 
         private int OnMouseMove(int x, int y, int flags)
@@ -471,6 +502,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _moveTimer.Stop();
             _moveTimer.Tick -= OnMoveTick;
             var failures = new List<Exception>();
+            if (_commandSubscribed)
+            {
+                try
+                {
+                    _applicationEvents.CommandOpenPreNotify -= _commandOpening;
+                    _commandSubscribed = false;
+                }
+                catch (Exception ex) when (IsComLifetimeException(ex)) { failures.Add(ex); }
+            }
             if (_moveSubscribed)
             {
                 try

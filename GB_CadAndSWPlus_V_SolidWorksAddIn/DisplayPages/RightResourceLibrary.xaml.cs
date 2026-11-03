@@ -27,6 +27,24 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         /// <summary>通知插件主入口打开统一登录窗口。</summary>
         public event EventHandler? LoginRequested;
 
+        /// <summary>两个界面入口共用插件主入口的路线选点命令。</summary>
+        public event EventHandler? DrawPipelineRequested;
+
+        internal Func<bool>? IsPipelineRouteBusy { get; set; }
+
+        private void DrawPipelineButton_Click(object sender, RoutedEventArgs e)
+        {
+            SolidWorksFileLogger.Info("资源库绘制管道按钮被点击。");
+            if (DrawPipelineRequested == null)
+            {
+                SolidWorksFileLogger.Warning("绘制管道命令尚未连接插件主入口。");
+                MessageBox.Show("绘制管道命令尚未连接，请重新加载插件。", "绘制管道",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            DrawPipelineRequested.Invoke(this, EventArgs.Empty);
+        }
+
         public RightResourceLibrary()
         {
             SolidWorksFileLogger.Start("初始化 SolidWorks 右侧资源库控件");

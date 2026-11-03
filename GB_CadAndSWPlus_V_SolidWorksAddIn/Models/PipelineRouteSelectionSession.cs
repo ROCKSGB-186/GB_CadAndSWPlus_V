@@ -21,6 +21,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Models
         public IReadOnlyList<PipePoint3D> Points => _draft.Points;
         public PipeWorkPlane WorkPlane { get; private set; } = new PipeWorkPlane(PipeWorkPlaneKind.XY, 0);
 
+        /// <summary>复制选点中的草稿及初始平面，恢复后撤销行为保持不变。</summary>
+        internal PipelineRouteSelectionSession CopySelecting()
+        {
+            if (Status != PipelineRouteSelectionStatus.Selecting)
+                throw new System.InvalidOperationException("只有正在选点的路线可以暂停和恢复。");
+            var copy = new PipelineRouteSelectionSession { _initialPlane = _initialPlane, WorkPlane = WorkPlane };
+            foreach (PipePoint3D point in _draft.Points)
+                copy._draft.Add(point);
+            return copy;
+        }
+
         /// <summary>切换工作平面并设置其固定坐标，坐标单位为毫米。</summary>
         public bool TrySetWorkPlane(PipeWorkPlane plane, out string error)
         {
