@@ -32,6 +32,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _complete;
         private readonly Button _resume;
         private PipelineRoutePickingSession? _session;
+        private PipelineRouteKeyboardHook? _keyboardHook;
         private PipelineRouteSelectionSession? _suspendedSelection;
         private bool _selecting;
         private bool _forceClose;
@@ -61,6 +62,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             heading.Children.Add(new TextBlock
             {
                 Text = "左键拾点并确认坐标；视图操作暂沿用 SolidWorks 原有方式。",
+                TextWrapping = TextWrapping.Wrap
+            });
+            heading.Children.Add(new TextBlock
+            {
+                Text = "先将焦点切回图形区（如轻按中键）：Z 撤销、X 编辑、空格完成、Esc 取消；输入框和对话框不接管快捷键。",
                 TextWrapping = TextWrapping.Wrap
             });
             var planeRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -120,6 +126,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _selecting = true;
                 SetControlsEnabled(true);
                 _status.Text = "路线选点已启动。";
+                StartKeyboardHook();
                 SolidWorksFileLogger.Info("已打开绘管路线选点试运行窗口。");
                 return true;
             }
@@ -127,6 +134,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 _selecting = false;
                 SetControlsEnabled(false);
+                try { ReleaseInputResources(); }
+                catch (Exception cleanupError) when (IsOperationException(cleanupError))
+                {
+                    ReportError("启动路线选点失败且清理未完成，请关闭窗口重试", new AggregateException(ex, cleanupError));
+                    return false;
+                }
                 ReportError("启动路线选点失败", ex);
                 return false;
             }
@@ -136,11 +149,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         public bool CloseForShutdown(string reason)
         {
             SolidWorksFileLogger.Info("结束路线选点窗口；原因=" + reason + "。");
+            _selecting = false;
+            SetControlsEnabled(false);
             try
             {
-                _session?.Dispose();
-                _selecting = false;
-                SetControlsEnabled(false);
+                ReleaseInputResources();
             }
             catch (Exception ex) when (IsOperationException(ex))
             {
@@ -208,6 +221,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             _selecting = false;
             SetControlsEnabled(false);
+            try { StopKeyboardHook(); }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                _resume.IsEnabled = _session?.HasPausedSelection == true;
+                ReportError("路线已停止，但快捷键监听清理失败，请重试", ex);
+                return;
+            }
             if (_session?.HasPausedSelection == true)
             {
                 _resume.IsEnabled = true;
@@ -225,6 +245,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 if (_session == null) throw new InvalidOperationException("没有可恢复的路线选点会话。");
                 // 旧事件必须完全释放；快照单独保留，恢复失败时不丢失已选点。
+                StopKeyboardHook();
                 _session.Dispose();
                 if (_suspendedSelection == null)
                     _suspendedSelection = _session.CopyPausedSelection()
@@ -234,12 +255,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, _suspendedSelection);
                 _session = next;
                 next.Start();
-                _suspendedSelection = null;
                 _selecting = true;
                 _resume.IsEnabled = false;
                 SetControlsEnabled(true);
                 ShowSelection(next.Points, next.WorkPlane);
                 _status.Text = "路线选点已恢复；已确认坐标和工作平面保持不变。";
+                StartKeyboardHook();
+                _suspendedSelection = null;
                 SolidWorksFileLogger.Info("已恢复 SolidWorks 路线选点；点数=" + next.Points.Count + "。");
             }
             catch (Exception ex) when (IsOperationException(ex))
@@ -247,6 +269,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _selecting = false;
                 SetControlsEnabled(false);
                 _resume.IsEnabled = true;
+                try { ReleaseInputResources(); }
+                catch (Exception cleanupError) when (IsOperationException(cleanupError))
+                {
+                    ReportError("恢复路线选点失败且清理未完成，请重试", new AggregateException(ex, cleanupError));
+                    return;
+                }
                 ReportError("恢复路线选点失败，请结束原生命令并检查原文档后重试", ex);
             }
         }
@@ -305,6 +333,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 _selecting = false;
                 SetControlsEnabled(false);
+                StopKeyboardHook();
                 _status.Text = "已完成 " + route!.Points.Count + " 个坐标的试运行；未生成或保存模型，可在下方复制坐标。";
                 MessageBox.Show(this, "路线点列已确认。当前阶段不会生成或保存管道模型；坐标可在窗口中选择并复制。",
                     "路线选点试运行", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -320,10 +349,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 args.Cancel = true;
                 return;
             }
+            _selecting = false;
+            SetControlsEnabled(false);
             try
             {
-                _session?.Dispose();
-                _selecting = false;
+                ReleaseInputResources();
                 SolidWorksFileLogger.Info("已关闭路线选点窗口。");
             }
             catch (Exception ex) when (IsOperationException(ex))
@@ -348,7 +378,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _selecting = false;
                 SetControlsEnabled(false);
                 bool paused = _session.HasPausedSelection;
-                try { _session.Dispose(); }
+                try { ReleaseInputResources(); }
                 catch (Exception cleanupError) when (IsOperationException(cleanupError))
                 {
                     _resume.IsEnabled = paused;
@@ -369,6 +399,78 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             SolidWorksFileLogger.Error(operation + "：" + ex);
             _status.Text = operation + "：" + ex.Message;
             MessageBox.Show(this, _status.Text, "路线选点", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        private void StartKeyboardHook()
+        {
+            if (_session == null) throw new InvalidOperationException("路线选点尚未启动。");
+            PipelineRouteKeyboardHook? hook = null;
+            hook = new PipelineRouteKeyboardHook(_session.ViewWindow, new WindowInteropHelper(this).Owner,
+                () => _selecting && _session != null && _session.CanHandleShortcut,
+                OnShortcut, error => OnShortcutError(hook!, error));
+            _keyboardHook = hook;
+            try
+            {
+                hook.Start();
+                SolidWorksFileLogger.Info("已启用 SolidWorks 路线选点快捷键。");
+            }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                StopKeyboardHook();
+                SolidWorksFileLogger.Warning("路线快捷键启用失败，保留窗口按钮操作：" + ex.Message);
+                _status.Text = "快捷键不可用，请使用窗口按钮：" + ex.Message;
+                MessageBox.Show(this, _status.Text, "路线快捷键", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void StopKeyboardHook()
+        {
+            if (_keyboardHook == null) return;
+            _keyboardHook.Dispose();
+            _keyboardHook = null;
+            SolidWorksFileLogger.Info("已释放 SolidWorks 路线选点快捷键。");
+        }
+
+        private void ReleaseInputResources()
+        {
+            var failures = new List<Exception>();
+            try { StopKeyboardHook(); }
+            catch (Exception ex) when (IsOperationException(ex)) { failures.Add(ex); }
+            try { _session?.Dispose(); }
+            catch (Exception ex) when (IsOperationException(ex)) { failures.Add(ex); }
+            if (failures.Count > 0) throw new AggregateException("路线输入资源清理失败。", failures);
+        }
+
+        private void OnShortcut(PipelineRouteShortcut shortcut)
+        {
+            switch (shortcut)
+            {
+                case PipelineRouteShortcut.Undo:
+                    SolidWorksFileLogger.Info("执行路线选点快捷键：撤销最后点。"); Undo(); break;
+                case PipelineRouteShortcut.Edit:
+                    SolidWorksFileLogger.Info("执行路线选点快捷键：编辑最后点。"); Edit(); break;
+                case PipelineRouteShortcut.Complete:
+                    SolidWorksFileLogger.Info("执行路线选点快捷键：完成点列。"); Complete(); break;
+                case PipelineRouteShortcut.Cancel:
+                    SolidWorksFileLogger.Info("执行路线选点快捷键：取消选点。"); Close(); break;
+                default: throw new InvalidOperationException("未知路线选点快捷键。");
+            }
+        }
+
+        private void OnShortcutError(PipelineRouteKeyboardHook hook, Exception error)
+        {
+            if (_keyboardHook != hook)
+            {
+                SolidWorksFileLogger.Warning("已结束的路线快捷键监听收到延迟错误：" + error.Message);
+                return;
+            }
+            try { StopKeyboardHook(); }
+            catch (Exception cleanupError) when (IsOperationException(cleanupError))
+            {
+                ReportError("路线快捷键失败且未能释放，请关闭窗口重试", new AggregateException(error, cleanupError));
+                return;
+            }
+            ReportError("路线快捷键不可用，可继续使用窗口按钮", error);
         }
 
         private void SetControlsEnabled(bool enabled)
@@ -404,6 +506,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private static bool IsOperationException(Exception ex) =>
             ex is InvalidOperationException || ex is ArgumentException || ex is AggregateException ||
             ex is COMException || ex is InvalidComObjectException || ex is Win32Exception ||
-            ex is NotSupportedException || ex is ArithmeticException;
+            ex is NotSupportedException || ex is ArithmeticException ||
+            ex is DllNotFoundException || ex is EntryPointNotFoundException;
     }
 }

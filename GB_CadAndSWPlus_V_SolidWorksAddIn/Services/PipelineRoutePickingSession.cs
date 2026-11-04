@@ -105,6 +105,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public IReadOnlyList<PipePoint3D> Points => _selection.Points;
         public PipeWorkPlane WorkPlane => _selection.WorkPlane;
+        internal IntPtr ViewWindow => _viewWindow;
+        internal bool CanHandleShortcut => _started && !_stopping && !_disposed && !_confirming;
 
         /// <summary>启动预览和鼠标事件；失败时保留实例供调用方重试清理。</summary>
         public void Start()
