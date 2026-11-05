@@ -192,7 +192,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
         }
 
-        private static void RequireUiThread(IntPtr window)
+        internal static void RequireUiThread(IntPtr window)
         {
             uint processId;
             uint threadId = GetWindowThreadProcessId(window, out processId);

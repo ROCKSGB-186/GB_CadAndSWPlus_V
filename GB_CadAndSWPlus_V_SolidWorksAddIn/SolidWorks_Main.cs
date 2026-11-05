@@ -177,7 +177,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn
                 PipelineRoutePickingWindow.EnsureReadyToPick(application, document);
                 var frame = application.Frame() as SolidWorks.Interop.sldworks.Frame
                     ?? throw new InvalidOperationException("无法获取 SolidWorks 主窗口。");
-                if (MessageBox.Show("当前试运行路线选点和属性；确认属性不会自动生成模型。两个点可另行验证未保存的独立直管，不插入装配体。\n\n" +
+                if (MessageBox.Show("当前试运行路线选点和属性；确认属性不会自动生成模型。两个点可另行验证或选择新路径保存独立直管，不插入装配体。\n\n" +
                     "请先退出 SolidWorks 的草图及其他正在运行的命令。选点期间启动其他命令将暂停本次选点，可在结束命令后恢复。\n\n是否继续？",
                     "绘制管道——路线选点试运行", MessageBoxButton.YesNo, MessageBoxImage.Information) != MessageBoxResult.Yes)
                 {

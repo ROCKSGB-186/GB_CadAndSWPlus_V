@@ -16,7 +16,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         [Icon(typeof(Resource), nameof(Resource.退出登录))] // 设置退出命令使用的图标资源。
         Logout, // 定义退出命令标识。
         [Title("绘制管道")]
-        [Description("路线选点及独立未保存直管试运行")]
+        [Description("路线选点及独立直管试运行")]
         [Icon(typeof(Resource), nameof(Resource.沈阳铝镁院LOGO_NEW))]
         DrawPipeline,
     }

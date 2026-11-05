@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -261,8 +260,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
 
             double outerDiameter, thickness;
-            if (!TryPositiveNumber(values["PIPE_OD"], out outerDiameter) ||
-                !TryPositiveNumber(values["PIPE_THK"], out thickness) || thickness >= outerDiameter / 2)
+            if (!PipelineStraightParameters.TryPositiveNumber(values["PIPE_OD"], out outerDiameter) ||
+                !PipelineStraightParameters.TryPositiveNumber(values["PIPE_THK"], out thickness) || thickness >= outerDiameter / 2)
             {
                 SolidWorksFileLogger.Warning("绘管属性校验失败：外径或壁厚无效。");
                 MessageBox.Show(this, "请输入有效的正数外径和壁厚（单位：mm），壁厚必须小于外径的一半。",
@@ -272,14 +271,6 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             ConfirmedAttributes = values;
             SolidWorksFileLogger.Info("绘管属性确认通过；尚未保存，等待模型创建成功后由调用方处理。");
             DialogResult = true;
-        }
-
-        internal static bool TryPositiveNumber(string text, out double value)
-        {
-            const NumberStyles styles = NumberStyles.Float;
-            bool parsed = double.TryParse(text, styles, CultureInfo.InvariantCulture, out value) ||
-                double.TryParse(text, styles, CultureInfo.CurrentCulture, out value);
-            return parsed && !double.IsNaN(value) && !double.IsInfinity(value) && value > 0;
         }
 
         private static bool IsFreeEndpoint(string tag)
