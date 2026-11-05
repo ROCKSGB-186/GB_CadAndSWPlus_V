@@ -274,7 +274,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             DialogResult = true;
         }
 
-        private static bool TryPositiveNumber(string text, out double value)
+        internal static bool TryPositiveNumber(string text, out double value)
         {
             const NumberStyles styles = NumberStyles.Float;
             bool parsed = double.TryParse(text, styles, CultureInfo.InvariantCulture, out value) ||
