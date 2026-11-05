@@ -40,6 +40,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _testModel;
         private readonly Button _saveModel;
         private readonly Button _insertModel;
+        private readonly CheckBox _autoRebuild;
         private PipelineRoutePickingSession? _session;
         private PipelineRouteKeyboardHook? _keyboardHook;
         private PipelineRouteSelectionSession? _suspendedSelection;
@@ -63,7 +64,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             new WindowInteropHelper(this).Owner = owner;
             Title = "绘制管道——路线选点试运行";
             Width = 480;
-            Height = 470;
+            Height = 500;
             MinWidth = 420;
             MinHeight = 400;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -125,6 +126,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveModel.IsEnabled = false;
             _insertModel = AddButton(actions, "空装配体插入试验", (sender, args) => TestStraightModel(true, true));
             _insertModel.IsEnabled = false;
+            _autoRebuild = new CheckBox
+            {
+                Content = "插入后自动重建（仅空装配体试验）",
+                IsChecked = true,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 4, 8, 4),
+                ToolTip = "仅影响空装配体插入试验；重建不会自动保存装配体。"
+            };
+            actions.Children.Add(_autoRebuild);
             AddButton(actions, "关闭", (sender, args) => Close());
             DockPanel.SetDock(actions, Dock.Bottom);
             root.Children.Add(actions);
@@ -494,6 +504,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             string? assemblyConfiguration = null;
             bool modelSaved = false;
             bool buildAttempted = false;
+            bool autoRebuild = insertModel && _autoRebuild.IsChecked == true;
             _testModel.IsEnabled = false;
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
@@ -560,7 +571,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     : "将使用零件模板新建独立的未保存直管并写入本次属性，不自动保存零件。\n";
                 string assemblyNotice = insertModel
                     ? "随后将向当前新建、未保存的空装配体试插入一个组件；失败时可能已有组件，不会自动删除或回滚。\n" +
-                      "本次不会自动重建或保存装配体，请勿用于正式工程。\n"
+                      (autoRebuild
+                          ? "本次将自动重建装配体，重建会改变其当前状态；不会自动保存，请勿用于正式工程。\n"
+                          : "本次不会自动重建或保存装配体，请勿用于正式工程。\n")
                     : "不会插入或保存原装配体。\n";
                 if (MessageBox.Show(this, action + assemblyNotice +
                     "不会自动保存属性配置或同步数据库。\n" +
@@ -598,9 +611,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         PipelineStraightModelBuilder.Revalidate(_application, model, _completedRoute,
                             parameters.OutsideDiameterMm, parameters.WallThicknessMm);
                         PipelineStraightAssemblyTrial.ActivateAndInsert(_application, _document, model, destination!,
-                            assemblyConfiguration!, assemblyTitle!, new WindowInteropHelper(this).Owner);
+                            assemblyConfiguration!, assemblyTitle!, new WindowInteropHelper(this).Owner, autoRebuild);
                         _insertionAttempted = true;
-                        _status.Text = "直管已插入新建空装配体；尚未自动重建或保存装配体。";
+                        _status.Text = autoRebuild
+                            ? "直管已插入并重建空装配体；未自动保存装配体。"
+                            : "直管已插入新建空装配体；尚未自动重建或保存装配体。";
                     }
                 }
                 else
@@ -610,7 +625,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 string result = saveModel ? "独立直管已保存到：\n" + destination : "独立直管已生成，零件仍未保存。";
                 result += insertModel
-                    ? "\n已插入新建空装配体；尚未自动重建或保存装配体。请手动重建并重新核对位置，暂勿用于正式工程。"
+                    ? (autoRebuild
+                        ? "\n已插入并重建新建空装配体，未自动保存。请检查管道和位置；如未显示，可在图形区按 F 缩放到最佳大小。暂勿用于正式工程。"
+                        : "\n已插入新建空装配体，未自动重建或保存。请在图形区按 Ctrl+B 重建，必要时按 F 缩放到最佳大小，并重新核对位置；暂勿用于正式工程。")
                     : "\n它尚未插入原装配体。";
                 MessageBox.Show(this, result +
                     "\n尚未同步 CAD 或数据库。未填写的字段可能保留模板属性，请检查模型和属性。",

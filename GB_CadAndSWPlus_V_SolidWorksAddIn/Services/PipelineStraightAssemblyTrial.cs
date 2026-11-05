@@ -42,7 +42,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public static void ActivateAndInsert(SldWorks application, ModelDoc2 assemblyDocument,
             PipelineStraightModelResult model, string path, string configuration, string originalTitle,
-            IntPtr mainWindowHandle)
+            IntPtr mainWindowHandle, bool autoRebuild)
         {
             bool attempted = false;
             string stage = "检查已保存的直管";
@@ -113,17 +113,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     actual = component.Transform2;
                 }
                 RequireIdentity(math, actual);
-                RequireReady(application, assembly, assemblyDocument, configuration, false);
-                RequirePart(application, model.Document, path, false);
-                RequireOnlyInsertedComponent(application, assembly, component);
-                if (!PathsEqual(component.GetPathName(), path) ||
-                    !string.Equals(component.ReferencedConfiguration, partConfiguration, StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(ConfigurationName(model.Document), partConfiguration, StringComparison.OrdinalIgnoreCase))
-                    throw new InvalidOperationException("定位后组件引用的路径或配置已变化。");
-                componentModel = component.GetModelDoc2();
-                if (componentModel == null || !Same(application, componentModel, model.Document))
-                    throw new InvalidOperationException("定位后无法确认组件引用本次直管零件。");
+                RequireInserted(application, assembly, assemblyDocument, model.Document, component,
+                    math, path, configuration, partConfiguration);
                 SolidWorksFileLogger.Info("直管已插入新建空装配体，组件单位变换及引用校验通过；未保存装配体。");
+                if (autoRebuild)
+                {
+                    stage = "重建并校验试验装配体";
+                    RebuildAndValidate(application, assembly, assemblyDocument, model, component,
+                        math, path, configuration, partConfiguration);
+                }
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
                                        ex is IOException || ex is UnauthorizedAccessException ||
@@ -135,6 +133,39 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     ex.GetType().Name + "；已尝试插入=" + (attempted ? "是" : "否") + "；未自动回滚。");
                 throw new PipelineAssemblyTrialException(stage, attempted, ex);
             }
+        }
+
+        private static void RebuildAndValidate(SldWorks application, AssemblyDoc assembly, ModelDoc2 assemblyDocument,
+            PipelineStraightModelResult model, Component2 component, MathUtility math, string path,
+            string configuration, string partConfiguration)
+        {
+            SolidWorksFileLogger.Info("用户选择自动重建，开始重建新建空装配体；不会自动保存。");
+            if (!assemblyDocument.EditRebuild3())
+                throw new InvalidOperationException("SolidWorks 返回重建失败，不能确认装配体状态。");
+            RequireInserted(application, assembly, assemblyDocument, model.Document, component,
+                math, path, configuration, partConfiguration);
+            bool warning;
+            int featureError = model.Feature.GetErrorCode2(out warning);
+            if (featureError != 0 || warning)
+                throw new InvalidOperationException("重建后直管特征存在错误或警告；错误码=" + featureError + "。");
+            SolidWorksFileLogger.Info("试验装配体重建完成，组件引用、位置及直管特征校验通过；未保存装配体。");
+        }
+
+        private static void RequireInserted(SldWorks application, AssemblyDoc assembly, ModelDoc2 assemblyDocument,
+            ModelDoc2 partDocument, Component2 component, MathUtility math, string path,
+            string configuration, string partConfiguration)
+        {
+            RequireReady(application, assembly, assemblyDocument, configuration, false);
+            RequirePart(application, partDocument, path, false);
+            RequireOnlyInsertedComponent(application, assembly, component);
+            RequireIdentity(math, component.Transform2);
+            if (!PathsEqual(component.GetPathName(), path) ||
+                !string.Equals(component.ReferencedConfiguration, partConfiguration, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(ConfigurationName(partDocument), partConfiguration, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("组件引用的路径或配置已变化。");
+            object componentModel = component.GetModelDoc2();
+            if (componentModel == null || !Same(application, componentModel, partDocument))
+                throw new InvalidOperationException("无法确认组件引用本次直管零件。");
         }
 
         private static void RequireMainWindow(SldWorks application, IntPtr handle)
