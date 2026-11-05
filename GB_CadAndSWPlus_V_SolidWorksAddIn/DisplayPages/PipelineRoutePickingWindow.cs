@@ -400,6 +400,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
             _status.Text = "正在读取共享管道字段目录，请稍候。";
+            bool startAfterConfirmation = false;
             try
             {
                 IReadOnlyList<PipelinePropertiesFieldDefinition>? fields = null;
@@ -432,11 +433,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 if (_windowClosed) return;
                 if (offline)
                 {
-                    MessageBox.Show(this, "无法读取服务器共享管道字段目录，将使用本地精简字段。本次确认属性不会生成模型。",
+                    MessageBox.Show(this, "无法读取服务器共享管道字段目录，将使用本地精简字段。",
                         "管道字段目录", MessageBoxButton.OK, MessageBoxImage.Warning);
                     if (_windowClosed) return;
                 }
-                var window = new PipelinePropertiesWindow(fields, _confirmedAttributes, null, true) { Owner = this };
+                string? blockReason = AutomaticInsertionBlockReason();
+                bool startAssemblyTrial = blockReason == null;
+                var window = new PipelinePropertiesWindow(fields, _confirmedAttributes, null, true,
+                    startAssemblyTrial, _autoRebuild.IsChecked == true, blockReason) { Owner = this };
                 bool? result = window.ShowDialog();
                 if (_windowClosed) return;
                 if (result == true)
@@ -447,11 +451,21 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     foreach (var field in window.Fields)
                         modelAttributes.Add(field.Tag, window.ConfirmedAttributes[field.Tag]);
                     _confirmedModelAttributes = modelAttributes;
-                    _status.Text = "属性已确认，仅保存在本次窗口中；本次确认未生成模型，也未自动保存配置。";
-                    SolidWorksFileLogger.Info("试运行管道属性已确认；本次确认未生成模型或自动保存配置。");
-                    MessageBox.Show(this, "属性已确认，本次确认不会生成模型或自动保存配置；关闭路线窗口后本次属性将丢失。\n" +
-                        (_completedRoute.Points.Count == 2 ? "可验证、保存直管，或在新建空装配体中进行插入试验。" : "多点路线暂不能生成模型。"),
-                        "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
+                    if (startAssemblyTrial)
+                    {
+                        _autoRebuild.IsChecked = window.AutoRebuildOnInsert;
+                        _status.Text = "属性已确认，准备检查空装配体并选择新零件文件。";
+                        SolidWorksFileLogger.Info("试运行管道属性已确认，准备进入空装配体直管生成流程；未自动保存属性配置。");
+                        startAfterConfirmation = true;
+                    }
+                    else
+                    {
+                        _status.Text = "属性已确认；本次未生成或更新模型，也未自动保存配置。";
+                        SolidWorksFileLogger.Info("试运行管道属性已确认；当前路线未进入自动插入流程，也未更新已有模型或自动保存配置。");
+                        MessageBox.Show(this, "属性只保存在本次窗口中，未生成或更新模型，也未自动保存配置。\n" +
+                            blockReason + "\n关闭路线窗口后本次属性将丢失。",
+                            "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
                 }
                 else
                 {
@@ -476,15 +490,40 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
                 }
             }
+            if (startAfterConfirmation && !_windowClosed)
+                TestStraightModel(true, true);
+        }
+
+        private string? AutomaticInsertionBlockReason()
+        {
+            if (_insertionAttempted)
+                return "本次路线已执行过插入试验，修改属性不会更新已生成的模型。";
+            if (_completedRoute == null || _completedRoute.Points.Count != 2)
+                return "多点路线暂不能生成模型。";
+            string? configuration = _assemblyRouteGuard.Configuration;
+            if (!_assemblyRouteGuard.IsValid || string.IsNullOrWhiteSpace(configuration))
+                return "无法确认路线始终位于同一装配体根级及配置，暂不能自动插入。";
+            try
+            {
+                PipelineStraightAssemblyTrial.ValidateTarget(
+                    _application, _document, configuration, new WindowInteropHelper(this).Owner);
+                return null;
+            }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                SolidWorksFileLogger.Warning("属性确认后不自动插入，检查试验装配体失败；异常类型=" +
+                    ex.GetType().Name + "；原因=" + ex.Message);
+                return "试验装配体检查未通过：" + ex.Message;
+            }
         }
 
         private void TestStraightModel(bool saveModel, bool insertModel = false)
         {
             if (_loadingProperties || _completedRoute == null || _completedRoute.Points.Count != 2 ||
-                _confirmedModelAttributes == null)
+                _confirmedModelAttributes == null || (insertModel && _insertionAttempted))
             {
-                SolidWorksFileLogger.Warning("独立直管验证未启动：需要两个坐标及已确认的属性。");
-                MessageBox.Show(this, "请先完成两个坐标并确认管道属性。多点路线暂不支持建模。",
+                SolidWorksFileLogger.Warning("独立直管验证未启动：路线、属性状态或插入试验锁定不符合要求。");
+                MessageBox.Show(this, "请先完成两个坐标并确认管道属性。多点路线暂不支持建模；已执行过的插入试验不能在同一路线上重复。",
                     "独立直管验证", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }

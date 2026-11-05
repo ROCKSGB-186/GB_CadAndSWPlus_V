@@ -20,6 +20,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Dictionary<string, Control> _editors = new Dictionary<string, Control>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _initialValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly TextBlock _status;
+        private readonly CheckBox? _autoRebuild;
         private bool _loadFailed;
 
         public IReadOnlyList<PipelinePropertiesFieldDefinition> Fields { get; }
@@ -29,6 +30,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         /// <summary>仅在确定并完成校验后产生，取消时为 null；调用方应在建模成功后再保存。</summary>
         public IDictionary<string, string> ConfirmedAttributes { get; private set; }
+        internal bool AutoRebuildOnInsert => _autoRebuild?.IsChecked == true;
 
         /// <param name="fields">服务端目录转换后的字段；null 或空集合使用本地精简字段，不使用目录默认值。</param>
         /// <param name="initialAttributes">本次实例属性，优先于本地最后属性；起终点可为空。</param>
@@ -45,7 +47,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             IEnumerable<PipelinePropertiesFieldDefinition>? fields,
             IDictionary<string, string>? initialAttributes,
             PipelinePropertiesConfigurationService? configurationService,
-            bool isTrial)
+            bool isTrial,
+            bool startAssemblyTrial = false,
+            bool autoRebuild = true,
+            string? assemblyTrialBlockReason = null)
         {
             SolidWorksFileLogger.Start("打开绘管属性窗口");
             ConfigurationService = configurationService ?? new PipelinePropertiesConfigurationService();
@@ -101,7 +106,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 : "当前使用调用方提供的服务器字段目录。";
             _status = new TextBlock
             {
-                Text = (isTrial ? "当前为属性试运行：点击“确定”不会生成模型，也不会自动保存配置。\n" : string.Empty) +
+                Text = (isTrial
+                    ? (startAssemblyTrial
+                        ? "当前为试运行：点击“确定”后将检查空装配体，并要求选择新文件及确认，才会生成并插入直管；不会自动保存装配体或属性配置。\n"
+                        : "当前为属性试运行：此路线暂不能自动插入；点击“确定”只确认属性，不生成模型或自动保存配置。" +
+                          (string.IsNullOrWhiteSpace(assemblyTrialBlockReason) ? "" : "\n原因：" + assemblyTrialBlockReason) + "\n")
+                    : string.Empty) +
                     catalogNotice + "\n属性和尺寸尚未进行工程规范校核；自由起终点无需连接设备。" +
                     (_loadFailed ? "\n本地配置加载失败，未使用已保存属性；请检查配置文件，勿假定读取成功。" : string.Empty),
                 TextWrapping = TextWrapping.Wrap,
@@ -123,6 +133,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             buttons.Children.Add(ok);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
+            if (startAssemblyTrial)
+            {
+                _autoRebuild = new CheckBox
+                {
+                    Content = "插入后自动重建空装配体（不自动保存）",
+                    IsChecked = autoRebuild,
+                    Margin = new Thickness(4, 4, 4, 8)
+                };
+                DockPanel.SetDock(_autoRebuild, Dock.Bottom);
+                root.Children.Add(_autoRebuild);
+            }
 
             var panel = new StackPanel();
             foreach (var group in Fields.GroupBy(field => string.IsNullOrWhiteSpace(field.Group) ? "其他" : field.Group))
