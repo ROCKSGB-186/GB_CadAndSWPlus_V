@@ -38,6 +38,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             IEnumerable<PipelinePropertiesFieldDefinition> fields = null,
             IDictionary<string, string> initialAttributes = null,
             PipelinePropertiesConfigurationService configurationService = null)
+            : this(fields, initialAttributes, configurationService, false)
+        {
+        }
+
+        internal PipelinePropertiesWindow(
+            IEnumerable<PipelinePropertiesFieldDefinition>? fields,
+            IDictionary<string, string>? initialAttributes,
+            PipelinePropertiesConfigurationService? configurationService,
+            bool isTrial)
         {
             SolidWorksFileLogger.Start("打开绘管属性窗口");
             ConfigurationService = configurationService ?? new PipelinePropertiesConfigurationService();
@@ -78,7 +87,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 SolidWorksFileLogger.Error("绘管属性窗口加载本地配置失败；异常类型=" + ex.GetType().Name + "。");
             }
 
-            Title = "SolidWorks 绘管属性";
+            Title = isTrial ? "SolidWorks 绘管属性——试运行" : "SolidWorks 绘管属性";
             Width = 620;
             Height = 680;
             MinWidth = 480;
@@ -93,7 +102,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 : "当前使用调用方提供的服务器字段目录。";
             _status = new TextBlock
             {
-                Text = catalogNotice + "\n属性和尺寸尚未进行工程规范校核；自由起终点无需连接设备。" +
+                Text = (isTrial ? "当前为属性试运行：点击“确定”不会生成模型，也不会自动保存配置。\n" : string.Empty) +
+                    catalogNotice + "\n属性和尺寸尚未进行工程规范校核；自由起终点无需连接设备。" +
                     (_loadFailed ? "\n本地配置加载失败，未使用已保存属性；请检查配置文件，勿假定读取成功。" : string.Empty),
                 TextWrapping = TextWrapping.Wrap,
                 Foreground = Brushes.DarkOrange,

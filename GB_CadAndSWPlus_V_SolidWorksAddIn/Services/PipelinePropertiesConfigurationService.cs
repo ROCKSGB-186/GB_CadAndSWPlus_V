@@ -25,9 +25,18 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private readonly string _filePath;
 
         public PipelinePropertiesConfigurationService()
+            : this(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "GB_CADPLUS", "SolidWorksCache", "Pipeline", "last-properties.json"))
         {
-            _filePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "GB_CADPLUS", "SolidWorksCache", "Pipeline", "last-properties.json");
+        }
+
+        internal PipelinePropertiesConfigurationService(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !Path.IsPathRooted(filePath) ||
+                !string.Equals(Path.GetPathRoot(filePath), Path.GetPathRoot(Path.GetFullPath(filePath)),
+                    StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("绘管配置路径必须为绝对路径。", nameof(filePath));
+            _filePath = filePath;
         }
 
         public string FilePath => _filePath;

@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using GB_CadAndSWPlus_V.Shared.Services;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Services;
@@ -31,12 +34,18 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _edit;
         private readonly Button _complete;
         private readonly Button _resume;
+        private readonly Button _properties;
         private PipelineRoutePickingSession? _session;
         private PipelineRouteKeyboardHook? _keyboardHook;
         private PipelineRouteSelectionSession? _suspendedSelection;
         private bool _selecting;
         private bool _forceClose;
         private bool _hasDisplayedPoints;
+        private bool _loadingProperties;
+        private bool _windowClosed;
+        private PipeRoute? _completedRoute;
+        private IDictionary<string, string>? _confirmedAttributes;
+        private CancellationTokenSource? _catalogCancellation;
 
         public PipelineRoutePickingWindow(SldWorks application, ModelDoc2 document, IntPtr owner)
         {
@@ -56,7 +65,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前仅验证路线选点，不生成或保存管道模型；关闭窗口后坐标不会保存。",
+                Text = "当前仅验证路线选点和属性，不生成或保存管道模型；关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -100,6 +109,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _complete = AddButton(actions, "完成点列", (sender, args) => Complete());
             _resume = AddButton(actions, "恢复选点", (sender, args) => Resume());
             _resume.IsEnabled = false;
+            _properties = AddButton(actions, "管道属性", (sender, args) => OpenProperties());
+            _properties.IsEnabled = false;
             AddButton(actions, "关闭", (sender, args) => Close());
             DockPanel.SetDock(actions, Dock.Bottom);
             root.Children.Add(actions);
@@ -113,6 +124,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             root.Children.Add(_points);
             Content = root;
             Closing += OnClosing;
+            Closed += (sender, args) =>
+            {
+                _windowClosed = true;
+                _catalogCancellation?.Cancel();
+            };
         }
 
         public bool Start()
@@ -334,10 +350,87 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _selecting = false;
                 SetControlsEnabled(false);
                 StopKeyboardHook();
-                _status.Text = "已完成 " + route!.Points.Count + " 个坐标的试运行；未生成或保存模型，可在下方复制坐标。";
-                MessageBox.Show(this, "路线点列已确认。当前阶段不会生成或保存管道模型；坐标可在窗口中选择并复制。",
-                    "路线选点试运行", MessageBoxButton.OK, MessageBoxImage.Information);
+                _completedRoute = route!;
+                _properties.IsEnabled = true;
+                _status.Text = "路线点列已完成；准备打开属性试运行页面。";
+                OpenProperties();
             });
+        }
+
+        private async void OpenProperties()
+        {
+            if (_loadingProperties || _completedRoute == null || _windowClosed)
+            {
+                SolidWorksFileLogger.Warning("无法打开绘管属性：路线未完成或属性页面正在打开。");
+                return;
+            }
+            _loadingProperties = true;
+            _properties.IsEnabled = false;
+            _status.Text = "正在读取共享管道字段目录，请稍候。";
+            try
+            {
+                IReadOnlyList<PipelinePropertiesFieldDefinition>? fields = null;
+                bool offline = false;
+                using (var cancellation = new CancellationTokenSource())
+                {
+                    _catalogCancellation = cancellation;
+                    try
+                    {
+                        var session = new SharedLoginSessionStore().Load();
+                        fields = await new PipelineFieldCatalogService().GetFieldsAsync(session, cancellation.Token);
+                    }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                    {
+                        SolidWorksFileLogger.Info("路线窗口已关闭，取消读取管道字段目录。");
+                        return;
+                    }
+                    catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException ||
+                                               ex is InvalidOperationException || ex is ArgumentException)
+                    {
+                        offline = true;
+                        SolidWorksFileLogger.Warning("共享管道字段目录读取失败，将提示使用本地精简字段；异常类型=" +
+                            ex.GetType().Name + "。");
+                    }
+                    finally
+                    {
+                        _catalogCancellation = null;
+                    }
+                }
+                if (_windowClosed) return;
+                if (offline)
+                {
+                    MessageBox.Show(this, "无法读取服务器共享管道字段目录，将使用本地精简字段。当前仅为属性试运行，不会生成模型。",
+                        "管道字段目录", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    if (_windowClosed) return;
+                }
+                var window = new PipelinePropertiesWindow(fields, _confirmedAttributes, null, true) { Owner = this };
+                bool? result = window.ShowDialog();
+                if (_windowClosed) return;
+                if (result == true)
+                {
+                    _confirmedAttributes = new Dictionary<string, string>(window.ConfirmedAttributes, StringComparer.OrdinalIgnoreCase);
+                    _status.Text = "属性已确认，仅保存在本次窗口中；未生成模型，也未自动保存配置。";
+                    SolidWorksFileLogger.Info("试运行管道属性已确认；未生成模型或自动保存配置。");
+                    MessageBox.Show(this, "属性已确认。本阶段不会生成模型，也不会自动保存配置；关闭路线窗口后本次属性将丢失。",
+                        "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    _status.Text = "已取消本次属性编辑；如曾点击“保存配置”，该配置仍然保留。";
+                    SolidWorksFileLogger.Info("用户取消试运行管道属性编辑。");
+                }
+            }
+            catch (Exception ex) when (IsOperationException(ex) || ex is HttpRequestException ||
+                                       ex is System.IO.IOException || ex is UnauthorizedAccessException)
+            {
+                if (!_windowClosed) ReportError("打开管道属性失败，可重试", ex);
+                else SolidWorksFileLogger.Error("路线窗口关闭后属性处理失败；异常类型=" + ex.GetType().Name + "。");
+            }
+            finally
+            {
+                _loadingProperties = false;
+                if (!_windowClosed) _properties.IsEnabled = _completedRoute != null;
+            }
         }
 
         private void OnClosing(object? sender, CancelEventArgs args)
