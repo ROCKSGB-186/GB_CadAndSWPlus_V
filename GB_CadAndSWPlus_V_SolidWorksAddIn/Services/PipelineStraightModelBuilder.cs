@@ -192,6 +192,31 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
         }
 
+        /// <summary>保存后再次检查同一活动零件的特征和几何，避免插入已经变化的模型。</summary>
+        internal static void Revalidate(SldWorks application, PipelineStraightModelResult model,
+            PipeRoute route, double outsideDiameterMm, double wallThicknessMm)
+        {
+            if (application == null) throw new ArgumentNullException(nameof(application));
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (route == null || route.Points.Count != 2 ||
+                route.StartKind != PipeEndpointKind.Free || route.EndKind != PipeEndpointKind.Free)
+                throw new ArgumentException("只能校验两个自由端点的直管路线。", nameof(route));
+            RequireActive(application, model.Document);
+            if (model.Document.GetType() != (int)swDocumentTypes_e.swDocPART ||
+                string.IsNullOrEmpty(model.Document.GetPathName()) || model.Document.GetSaveFlag())
+                throw new InvalidOperationException("直管零件不是已保存的活动零件，不能继续插入。");
+            bool warning;
+            int featureError = model.Feature.GetErrorCode2(out warning);
+            if (featureError != 0 || warning)
+                throw new InvalidOperationException("直管特征存在错误或警告；错误码=" + featureError + "。");
+            var part = model.Document as PartDoc ??
+                throw new InvalidOperationException("无法读取直管零件实体。");
+            VerifyBody(application, model.Document, part, route.Points[0], route.Points[1],
+                outsideDiameterMm, wallThicknessMm);
+            RequireActive(application, model.Document);
+            SolidWorksFileLogger.Info("保存后的直管特征与路径端点、长度及内外径再次校验通过。");
+        }
+
         internal static void RequireUiThread(IntPtr window)
         {
             uint processId;

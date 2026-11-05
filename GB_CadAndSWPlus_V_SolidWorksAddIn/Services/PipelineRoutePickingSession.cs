@@ -37,6 +37,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private readonly Action<IReadOnlyList<PipePoint3D>, PipeWorkPlane> _selectionChanged;
         private readonly Action<string> _message;
         private readonly Action<string> _unexpectedStop;
+        private readonly Action? _observePointContext;
 
         private bool _moveSubscribed;
         private bool _downSubscribed;
@@ -71,7 +72,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             Action<PipePoint3D?> cursorChanged,
             Action<IReadOnlyList<PipePoint3D>, PipeWorkPlane> selectionChanged,
             Action<string> message, Action<string> unexpectedStop,
-            PipelineRouteSelectionSession? previousSelection = null)
+            PipelineRouteSelectionSession? previousSelection = null,
+            Action? observePointContext = null)
         {
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _document = document ?? throw new ArgumentNullException(nameof(document));
@@ -80,6 +82,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _selectionChanged = selectionChanged ?? throw new ArgumentNullException(nameof(selectionChanged));
             _message = message ?? throw new ArgumentNullException(nameof(message));
             _unexpectedStop = unexpectedStop ?? throw new ArgumentNullException(nameof(unexpectedStop));
+            _observePointContext = observePointContext;
             _selection = previousSelection?.CopySelecting() ?? new PipelineRouteSelectionSession();
             _preview = new PipelineRoutePreviewSession(application, document, OnPreviewStopped);
             _managedThreadId = Thread.CurrentThread.ManagedThreadId;
@@ -285,6 +288,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     return 1;
                 }
                 ValidateMousePosition(x, y);
+                if (_observePointContext != null)
+                    InvokeUiCallback(_observePointContext, "拾点上下文检查");
                 PipePoint3D point = Project(x, y);
                 var points = _selection.Points;
                 PipePoint3D? previous = points.Count > 0 ? points[points.Count - 1] : (PipePoint3D?)null;

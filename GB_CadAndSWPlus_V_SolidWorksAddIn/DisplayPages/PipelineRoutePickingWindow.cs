@@ -20,11 +20,12 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 {
-    /// <summary>路线拾点及独立直管试运行窗口；不插入装配体或自动保存装配体。</summary>
+    /// <summary>路线拾点、独立直管及空装配体插入试运行窗口；不自动保存装配体。</summary>
     internal sealed class PipelineRoutePickingWindow : Window
     {
         private readonly SldWorks _application;
         private readonly ModelDoc2 _document;
+        private readonly PipelineAssemblyRouteGuard _assemblyRouteGuard;
         private readonly ComboBox _plane;
         private readonly TextBox _fixedCoordinate;
         private readonly TextBlock _cursor;
@@ -38,6 +39,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _properties;
         private readonly Button _testModel;
         private readonly Button _saveModel;
+        private readonly Button _insertModel;
         private PipelineRoutePickingSession? _session;
         private PipelineRouteKeyboardHook? _keyboardHook;
         private PipelineRouteSelectionSession? _suspendedSelection;
@@ -46,6 +48,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private bool _hasDisplayedPoints;
         private bool _loadingProperties;
         private bool _windowClosed;
+        private bool _insertionAttempted;
         private PipeRoute? _completedRoute;
         private IDictionary<string, string>? _confirmedAttributes;
         private IDictionary<string, string>? _confirmedModelAttributes;
@@ -55,6 +58,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _document = document ?? throw new ArgumentNullException(nameof(document));
+            _assemblyRouteGuard = new PipelineAssemblyRouteGuard(_application, _document);
             if (owner == IntPtr.Zero) throw new ArgumentException("SolidWorks 主窗口句柄无效。", nameof(owner));
             new WindowInteropHelper(this).Owner = owner;
             Title = "绘制管道——路线选点试运行";
@@ -69,7 +73,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可单独验证或选择新路径保存；不插入装配体、不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存或插入新建空装配体；不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -119,6 +123,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _testModel.IsEnabled = false;
             _saveModel = AddButton(actions, "保存独立直管", (sender, args) => TestStraightModel(true));
             _saveModel.IsEnabled = false;
+            _insertModel = AddButton(actions, "空装配体插入试验", (sender, args) => TestStraightModel(true, true));
+            _insertModel.IsEnabled = false;
             AddButton(actions, "关闭", (sender, args) => Close());
             DockPanel.SetDock(actions, Dock.Bottom);
             root.Children.Add(actions);
@@ -144,8 +150,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             try
             {
                 EnsureReadyToPick(_application, _document);
+                _assemblyRouteGuard.Observe();
                 _session = new PipelineRoutePickingSession(_application, _document, ConfirmPoint,
-                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop);
+                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, observePointContext: _assemblyRouteGuard.Observe);
                 _session.Start();
                 _selecting = true;
                 SetControlsEnabled(true);
@@ -218,8 +225,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         private PipePoint3D? ConfirmPoint(PipePoint3D point, PipePoint3D? previous)
         {
+            _assemblyRouteGuard.Observe();
             var window = new PipelinePointConfirmWindow(point, previous, false) { Owner = this };
-            return window.ShowDialog() == true ? window.ConfirmedPoint : (PipePoint3D?)null;
+            PipePoint3D? confirmed = window.ShowDialog() == true ? window.ConfirmedPoint : (PipePoint3D?)null;
+            _assemblyRouteGuard.Observe();
+            return confirmed;
         }
 
         private void ShowCursor(PipePoint3D? point)
@@ -275,8 +285,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _suspendedSelection = _session.CopyPausedSelection()
                         ?? throw new InvalidOperationException("路线暂停数据不可用，无法恢复选点。");
                 EnsureReadyToPick(_application, _document);
+                _assemblyRouteGuard.Observe();
                 var next = new PipelineRoutePickingSession(_application, _document, ConfirmPoint,
-                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, _suspendedSelection);
+                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, _suspendedSelection, _assemblyRouteGuard.Observe);
                 _session = next;
                 next.Start();
                 _selecting = true;
@@ -350,6 +361,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             Execute("完成路线点列", () =>
             {
+                _assemblyRouteGuard.Observe();
                 if (!_session!.TryComplete(out PipeRoute? route, out string error))
                 {
                     _status.Text = error;
@@ -376,6 +388,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _properties.IsEnabled = false;
             _testModel.IsEnabled = false;
             _saveModel.IsEnabled = false;
+            _insertModel.IsEnabled = false;
             _status.Text = "正在读取共享管道字段目录，请稍候。";
             try
             {
@@ -427,7 +440,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _status.Text = "属性已确认，仅保存在本次窗口中；本次确认未生成模型，也未自动保存配置。";
                     SolidWorksFileLogger.Info("试运行管道属性已确认；本次确认未生成模型或自动保存配置。");
                     MessageBox.Show(this, "属性已确认，本次确认不会生成模型或自动保存配置；关闭路线窗口后本次属性将丢失。\n" +
-                        (_completedRoute.Points.Count == 2 ? "可点击“验证独立直管”或“保存独立直管”。" : "多点路线暂不能生成模型。"),
+                        (_completedRoute.Points.Count == 2 ? "可验证、保存直管，或在新建空装配体中进行插入试验。" : "多点路线暂不能生成模型。"),
                         "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
@@ -450,11 +463,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _properties.IsEnabled = _completedRoute != null;
                     _testModel.IsEnabled = _completedRoute?.Points.Count == 2 && _confirmedModelAttributes != null;
                     _saveModel.IsEnabled = _testModel.IsEnabled;
+                    _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
                 }
             }
         }
 
-        private void TestStraightModel(bool saveModel)
+        private void TestStraightModel(bool saveModel, bool insertModel = false)
         {
             if (_loadingProperties || _completedRoute == null || _completedRoute.Points.Count != 2 ||
                 _confirmedModelAttributes == null)
@@ -476,12 +490,26 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
             PipelineStraightModelResult? model = null;
             string? destination = null;
+            string? assemblyTitle = null;
+            string? assemblyConfiguration = null;
+            bool modelSaved = false;
+            bool buildAttempted = false;
             _testModel.IsEnabled = false;
             _saveModel.IsEnabled = false;
+            _insertModel.IsEnabled = false;
             _properties.IsEnabled = false;
             try
             {
                 EnsureReadyToPick(_application, _document);
+                if (insertModel)
+                {
+                    _assemblyRouteGuard.Observe();
+                    assemblyConfiguration = _assemblyRouteGuard.Configuration;
+                    if (!_assemblyRouteGuard.IsValid || string.IsNullOrWhiteSpace(assemblyConfiguration))
+                        throw new InvalidOperationException("无法确认路线始终在同一装配体根级及配置中，请重新在新建空装配体中选点。");
+                    assemblyTitle = PipelineStraightAssemblyTrial.ValidateTarget(
+                        _application, _document, assemblyConfiguration, new WindowInteropHelper(this).Owner);
+                }
                 string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
                 if (string.IsNullOrWhiteSpace(template) || !File.Exists(template) ||
                     !string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase))
@@ -530,8 +558,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                       "仅用于专用空测试文件夹，不作正式文件；保存期间请勿让其他程序或人员访问目标文件。\n" +
                       "试运行仅支持普通本机固定 NTFS 磁盘，不覆盖预先存在的文件；保存失败时可能留下空文件或不完整文件，请检查后再处理。\n"
                     : "将使用零件模板新建独立的未保存直管并写入本次属性，不自动保存零件。\n";
-                if (MessageBox.Show(this, action +
-                    "不会插入或保存原装配体，不会自动保存属性配置或同步数据库。\n" +
+                string assemblyNotice = insertModel
+                    ? "随后将向当前新建、未保存的空装配体试插入一个组件；失败时可能已有组件，不会自动删除或回滚。\n" +
+                      "本次不会自动重建或保存装配体，请勿用于正式工程。\n"
+                    : "不会插入或保存原装配体。\n";
+                if (MessageBox.Show(this, action + assemblyNotice +
+                    "不会自动保存属性配置或同步数据库。\n" +
                     "未填写的字段保留模板已有属性，模板值可能与管道字段含义不同，请自行核对。\n" +
                     "失败时新零件可能保留，请自行检查；是否继续？",
                     "独立直管验证", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
@@ -541,54 +573,96 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     return;
                 }
                 EnsureReadyToPick(_application, _document);
+                if (insertModel)
+                {
+                    _assemblyRouteGuard.Observe();
+                    if (!_assemblyRouteGuard.IsValid)
+                        throw new InvalidOperationException("装配体拾点上下文已变化，请重新选点。");
+                    string currentTitle = PipelineStraightAssemblyTrial.ValidateTarget(
+                        _application, _document, assemblyConfiguration!, new WindowInteropHelper(this).Owner);
+                    if (!string.Equals(currentTitle, assemblyTitle, StringComparison.Ordinal))
+                        throw new InvalidOperationException("试验装配体标题已变化，未创建零件。");
+                }
+                buildAttempted = true;
                 model = PipelineStraightModelBuilder.Build(_application, new WindowInteropHelper(this).Owner,
                     template, _completedRoute, parameters!.OutsideDiameterMm, parameters.WallThicknessMm);
                 PipelineModelPropertyWriter.Write(_application, model.Document, parameters.Attributes);
                 if (saveModel)
                 {
                     PipelineStraightModelSaver.Save(_application, model.Document, new WindowInteropHelper(this).Owner, destination!);
+                    modelSaved = true;
                     _status.Text = "独立直管零件已保存；尚未插入装配体。";
                     SolidWorksFileLogger.Info("独立直管及属性已保存；未插入装配体。");
+                    if (insertModel)
+                    {
+                        PipelineStraightModelBuilder.Revalidate(_application, model, _completedRoute,
+                            parameters.OutsideDiameterMm, parameters.WallThicknessMm);
+                        PipelineStraightAssemblyTrial.ActivateAndInsert(_application, _document, model, destination!,
+                            assemblyConfiguration!, assemblyTitle!, new WindowInteropHelper(this).Owner);
+                        _insertionAttempted = true;
+                        _status.Text = "直管已插入新建空装配体；尚未自动重建或保存装配体。";
+                    }
                 }
                 else
                 {
                     _status.Text = "已生成并校验独立未保存直管及文件级属性；未插入装配体。";
                     SolidWorksFileLogger.Info("独立直管及属性验证完成；未保存、未插入装配体。");
                 }
-                MessageBox.Show(this, (saveModel ? "独立直管已保存到：\n" + destination : "独立直管已生成，零件仍未保存。") +
-                    "\n它尚未插入原装配体，也未同步 CAD 或数据库。未填写的字段可能保留模板属性，请检查模型和属性。",
+                string result = saveModel ? "独立直管已保存到：\n" + destination : "独立直管已生成，零件仍未保存。";
+                result += insertModel
+                    ? "\n已插入新建空装配体；尚未自动重建或保存装配体。请手动重建并重新核对位置，暂勿用于正式工程。"
+                    : "\n它尚未插入原装配体。";
+                MessageBox.Show(this, result +
+                    "\n尚未同步 CAD 或数据库。未填写的字段可能保留模板属性，请检查模型和属性。",
                     "独立直管验证", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (PipelineStraightModelBuildException ex)
             {
                 _status.Text = "独立直管验证失败，请检查可能残留的新零件。";
-                MessageBox.Show(this, ex.Message, "独立直管验证失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, ex.Message + TrialRetryNotice(insertModel && buildAttempted),
+                    "独立直管验证失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (PipelineStraightModelSaveException ex)
             {
                 _status.Text = "独立直管保存未完全成功，请检查文件和零件后再操作。";
-                MessageBox.Show(this, ex.Message, "独立直管保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(this, ex.Message + TrialRetryNotice(insertModel && buildAttempted),
+                    "独立直管保存失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (PipelineAssemblyTrialException ex)
+            {
+                if (ex.InsertionAttempted) _insertionAttempted = true;
+                _status.Text = "空装配体插入试验失败，请检查装配体和已保存零件。";
+                MessageBox.Show(this, ex.Message + "\n直管零件已保存到：\n" + destination +
+                    TrialRetryNotice(insertModel && buildAttempted),
+                    "空装配体插入试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (Exception ex) when (IsOperationException(ex) || ex is IOException ||
                                        ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
             {
                 string context = model == null ? "尚未创建新零件。" :
+                    modelSaved ? "直管零件已保存到：\n" + destination + "\n未自动关闭或回滚。" :
                     "新零件“" + model.Title + "”可能仍然打开，保存状态或属性可能不完整；未自动关闭或回滚。";
                 SolidWorksFileLogger.Error("独立直管属性验证失败；异常类型=" + ex.GetType().Name + "。");
                 _status.Text = "独立直管验证失败：" + ex.Message;
-                MessageBox.Show(this, _status.Text + "\n" + context, "独立直管验证失败",
+                MessageBox.Show(this, _status.Text + "\n" + context + TrialRetryNotice(insertModel && buildAttempted), "独立直管验证失败",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
+                if (insertModel && buildAttempted) _insertionAttempted = true;
                 if (!_windowClosed)
                 {
                     _properties.IsEnabled = _completedRoute != null;
                     _testModel.IsEnabled = _completedRoute?.Points.Count == 2 && _confirmedModelAttributes != null;
                     _saveModel.IsEnabled = _testModel.IsEnabled;
+                    _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
                 }
             }
         }
+
+        private static string TrialRetryNotice(bool locked) => locked
+            ? "\n本次插入试验已锁定，请检查零件、文件和装配体后关闭路线窗口，重新开始选点。"
+            : string.Empty;
 
         private void OnClosing(object? sender, CancelEventArgs args)
         {
