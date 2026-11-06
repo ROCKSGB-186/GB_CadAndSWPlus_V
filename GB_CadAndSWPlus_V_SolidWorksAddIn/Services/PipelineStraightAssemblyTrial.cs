@@ -80,8 +80,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             {
                 PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
                 RequireMainWindow(application, mainWindowHandle);
-                if (baseline != null && autoRebuild)
-                    throw new InvalidOperationException("已有组件装配体试验不允许自动重建。");
+                if (baseline != null && autoRebuild && !(baseline is PipelineMultipleComponentBaseline))
+                    throw new InvalidOperationException("仅双零件测试装配体允许选择自动重建。");
                 RequirePart(application, model.Document, path, true);
                 var part = model.Document as PartDoc ??
                     throw new InvalidOperationException("无法读取已保存直管的零件接口。");
@@ -153,13 +153,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 RequireInserted(application, assembly, assemblyDocument, model.Document, component,
                     math, path, configuration, partConfiguration, baseline);
                 SolidWorksFileLogger.Info(baseline == null
-                    ? "直管已插入新建空装配体，组件单位变换及引用校验通过；未保存装配体。"
-                    : "直管已插入已有组件的测试装配体，原组件基线与新组件引用、位置校验通过；未重建或保存装配体。");
+                    ? "直管已插入新建空装配体，组件单位变换及引用校验通过；尚未保存装配体。"
+                    : "直管已插入已有组件的测试装配体，原组件基线与新组件引用、位置校验通过；尚未重建或保存装配体。");
                 if (autoRebuild)
                 {
                     stage = "重建并校验试验装配体";
                     RebuildAndValidate(application, assembly, assemblyDocument, model, component,
-                        math, path, configuration, partConfiguration);
+                        math, path, configuration, partConfiguration, baseline);
                 }
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
@@ -176,13 +176,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         private static void RebuildAndValidate(SldWorks application, AssemblyDoc assembly, ModelDoc2 assemblyDocument,
             PipelineStraightModelResult model, Component2 component, MathUtility math, string path,
-            string configuration, string partConfiguration)
+            string configuration, string partConfiguration, IPipelineAssemblyComponentBaseline? baseline)
         {
-            SolidWorksFileLogger.Info("用户选择自动重建，开始重建新建空装配体；不会自动保存。");
+            RequireInserted(application, assembly, assemblyDocument, model.Document, component,
+                math, path, configuration, partConfiguration, baseline);
+            SolidWorksFileLogger.Info(baseline == null
+                ? "用户选择自动重建，开始重建新建空装配体；不会自动保存。"
+                : "用户选择自动重建，开始重建双零件测试装配体；不会自动保存，也不能保证回滚。");
             if (!assemblyDocument.EditRebuild3())
                 throw new InvalidOperationException("SolidWorks 返回重建失败，不能确认装配体状态。");
             RequireInserted(application, assembly, assemblyDocument, model.Document, component,
-                math, path, configuration, partConfiguration);
+                math, path, configuration, partConfiguration, baseline);
             bool warning;
             int featureError = model.Feature.GetErrorCode2(out warning);
             if (featureError != 0 || warning)
