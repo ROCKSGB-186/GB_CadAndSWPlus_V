@@ -41,6 +41,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _saveModel;
         private readonly Button _insertModel;
         private readonly Button _singleComponentTrial;
+        private readonly Button _multipleComponentTrial;
         private readonly CheckBox _autoRebuild;
         private PipelineRoutePickingSession? _session;
         private PipelineRouteKeyboardHook? _keyboardHook;
@@ -75,7 +76,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可验证、保存，或插入未保存的空装配体及专用单零件测试装配体；不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存，或插入未保存的空装配体及专用单零件、双零件测试装配体；不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -130,6 +131,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _singleComponentTrial = AddButton(actions, "已有单零件试验",
                 (sender, args) => TestStraightModel(true, true, true));
             _singleComponentTrial.IsEnabled = false;
+            _multipleComponentTrial = AddButton(actions, "已有双零件试验",
+                (sender, args) => TestStraightModel(true, true, false, true));
+            _multipleComponentTrial.IsEnabled = false;
             _autoRebuild = new CheckBox
             {
                 Content = "插入后自动重建（仅空装配体试验）",
@@ -404,6 +408,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
             _singleComponentTrial.IsEnabled = false;
+            _multipleComponentTrial.IsEnabled = false;
             _status.Text = "正在读取共享管道字段目录，请稍候。";
             bool startAfterConfirmation = false;
             try
@@ -469,7 +474,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         SolidWorksFileLogger.Info("试运行管道属性已确认；当前路线未进入自动插入流程，也未更新已有模型或自动保存配置。");
                         MessageBox.Show(this, "属性只保存在本次窗口中，未生成或更新模型，也未自动保存配置。\n" +
                             blockReason + (_completedRoute.Points.Count == 2 && !_insertionAttempted
-                                ? "\n如需专用单零件测试装配体试验，可使用路线窗口的【已有单零件试验】。" : "") +
+                                ? "\n如需专用测试装配体试验，可使用路线窗口的【已有单零件试验】或【已有双零件试验】。" : "") +
                             "\n关闭路线窗口后本次属性将丢失。",
                             "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
@@ -496,6 +501,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _saveModel.IsEnabled = _testModel.IsEnabled;
                     _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
                     _singleComponentTrial.IsEnabled = _insertModel.IsEnabled;
+                    _multipleComponentTrial.IsEnabled = _insertModel.IsEnabled;
                 }
             }
             if (startAfterConfirmation && !_windowClosed)
@@ -514,7 +520,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             try
             {
                 PipelineStraightAssemblyTrial.ValidateTarget(
-                    _application, _document, configuration, new WindowInteropHelper(this).Owner);
+                    _application, _document, configuration!, new WindowInteropHelper(this).Owner);
                 return null;
             }
             catch (Exception ex) when (IsOperationException(ex))
@@ -525,11 +531,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
         }
 
-        private void TestStraightModel(bool saveModel, bool insertModel = false, bool singleComponentTrial = false)
+        private void TestStraightModel(bool saveModel, bool insertModel = false, bool singleComponentTrial = false,
+            bool multipleComponentTrial = false)
         {
+            bool nonEmptyTrial = singleComponentTrial || multipleComponentTrial;
             if (_loadingProperties || _completedRoute == null || _completedRoute.Points.Count != 2 ||
                 _confirmedModelAttributes == null || (insertModel && _insertionAttempted) ||
-                (singleComponentTrial && (!insertModel || !saveModel)))
+                (nonEmptyTrial && (!insertModel || !saveModel)) || (singleComponentTrial && multipleComponentTrial))
             {
                 SolidWorksFileLogger.Warning("独立直管验证未启动：路线、属性状态或插入试验锁定不符合要求。");
                 MessageBox.Show(this, "请先完成两个坐标并确认管道属性。多点路线暂不支持建模；已执行过的插入试验不能在同一路线上重复。",
@@ -550,14 +558,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             string? destination = null;
             string? assemblyTitle = null;
             string? assemblyConfiguration = null;
-            PipelineSingleComponentBaseline? baseline = null;
+            IPipelineAssemblyComponentBaseline? baseline = null;
             bool modelSaved = false;
             bool buildAttempted = false;
-            bool autoRebuild = insertModel && !singleComponentTrial && _autoRebuild.IsChecked == true;
+            bool autoRebuild = insertModel && !nonEmptyTrial && _autoRebuild.IsChecked == true;
             _testModel.IsEnabled = false;
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
             _singleComponentTrial.IsEnabled = false;
+            _multipleComponentTrial.IsEnabled = false;
             _properties.IsEnabled = false;
             try
             {
@@ -568,23 +577,29 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     assemblyConfiguration = _assemblyRouteGuard.Configuration;
                     if (!_assemblyRouteGuard.IsValid || string.IsNullOrWhiteSpace(assemblyConfiguration))
                         throw new InvalidOperationException("无法确认路线始终在同一装配体根级及配置中，请重新在新建空装配体中选点。");
-                    if (singleComponentTrial)
+                    if (nonEmptyTrial)
                     {
+                        string componentCount = multipleComponentTrial ? "两个" : "一个";
+                        string trialName = multipleComponentTrial ? "双零件" : "单零件";
                         if (MessageBox.Show(this,
-                            "仅用于您专门新建的未保存测试装配体，必须恰有一个已保存、固定且无配合的测试零件；严禁用于正式工程。\n" +
+                            "仅用于您专门新建的未保存测试装配体，必须恰有" + componentCount + "已保存、固定且无配合的根级测试零件；严禁用于正式工程。\n" +
                             "新直管保持浮动，可能被拖动；插入可能改变装配体，失败时不会自动回滚。\n" +
                             "本试验不会自动重建或保存。请确认零件也是专用测试副本，是否继续？",
-                            "单零件装配体试验", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                            trialName + "装配体试验", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
                         {
-                            _status.Text = "已取消单零件装配体试验，未创建模型。";
-                            SolidWorksFileLogger.Info("用户取消单零件装配体试验，未创建模型。");
+                            _status.Text = "已取消" + trialName + "装配体试验，未创建模型。";
+                            SolidWorksFileLogger.Info("用户取消" + trialName + "装配体试验，未创建模型。");
                             return;
                         }
-                        baseline = PipelineStraightAssemblyTrial.CaptureSingleComponentTarget(
-                            _application, _document, assemblyConfiguration, new WindowInteropHelper(this).Owner);
+                        if (multipleComponentTrial)
+                            baseline = PipelineStraightAssemblyTrial.CaptureMultipleComponentTarget(
+                                _application, _document, assemblyConfiguration!, new WindowInteropHelper(this).Owner);
+                        else
+                            baseline = PipelineStraightAssemblyTrial.CaptureSingleComponentTarget(
+                                _application, _document, assemblyConfiguration!, new WindowInteropHelper(this).Owner);
                     }
                     assemblyTitle = PipelineStraightAssemblyTrial.ValidateTarget(
-                        _application, _document, assemblyConfiguration, new WindowInteropHelper(this).Owner, baseline);
+                        _application, _document, assemblyConfiguration!, new WindowInteropHelper(this).Owner, baseline);
                 }
                 string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
                 if (string.IsNullOrWhiteSpace(template) || !File.Exists(template) ||
@@ -634,8 +649,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                       "仅用于专用空测试文件夹，不作正式文件；保存期间请勿让其他程序或人员访问目标文件。\n" +
                       "试运行仅支持普通本机固定 NTFS 磁盘，不覆盖预先存在的文件；保存失败时可能留下空文件或不完整文件，请检查后再处理。\n"
                     : "将使用零件模板新建独立的未保存直管并写入本次属性，不自动保存零件。\n";
-                string assemblyNotice = singleComponentTrial
-                    ? "随后将向一个已有测试零件的未保存测试装配体试插入直管；失败时可能已有组件或其他变化，不会自动删除或回滚。\n" +
+                string assemblyNotice = nonEmptyTrial
+                    ? "随后将向已有" + (multipleComponentTrial ? "两个" : "一个") + "测试零件的未保存测试装配体试插入直管；失败时可能已有组件或其他变化，不会自动删除或回滚。\n" +
                       "本次不会自动重建或保存装配体，请勿用于正式工程。\n"
                     : insertModel
                     ? "随后将向当前新建、未保存的空装配体试插入一个组件；失败时可能已有组件，不会自动删除或回滚。\n" +
@@ -681,8 +696,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         PipelineStraightAssemblyTrial.ActivateAndInsert(_application, _document, model, destination!,
                             assemblyConfiguration!, assemblyTitle!, new WindowInteropHelper(this).Owner, autoRebuild, baseline);
                         _insertionAttempted = true;
-                        _status.Text = singleComponentTrial
-                            ? "直管已插入单零件测试装配体；未自动重建或保存。"
+                        _status.Text = nonEmptyTrial
+                            ? "直管已插入" + (multipleComponentTrial ? "双零件" : "单零件") + "测试装配体；未自动重建或保存。"
                             : autoRebuild
                             ? "直管已插入并重建空装配体；未自动保存装配体。"
                             : "直管已插入新建空装配体；尚未自动重建或保存装配体。";
@@ -694,8 +709,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     SolidWorksFileLogger.Info("独立直管及属性验证完成；未保存、未插入装配体。");
                 }
                 string result = saveModel ? "独立直管已保存到：\n" + destination : "独立直管已生成，零件仍未保存。";
-                result += singleComponentTrial
-                    ? "\n已插入单零件测试装配体；新直管保持浮动，拖动后会偏离选定坐标。原组件身份、位置及状态的检查通过，但不能保证没有其他变化。未自动重建或保存；请检查两个组件，暂勿用于正式工程。"
+                result += nonEmptyTrial
+                    ? "\n已插入" + (multipleComponentTrial ? "双零件" : "单零件") + "测试装配体；新直管保持浮动，拖动后会偏离选定坐标。原组件身份、位置及状态的检查通过，但不能保证没有其他变化。未自动重建或保存；请检查所有组件，暂勿用于正式工程。"
                     : insertModel
                     ? (autoRebuild
                         ? "\n已插入并重建新建空装配体，未自动保存。请检查管道和位置；如未显示，可在图形区按 F 缩放到最佳大小。暂勿用于正式工程。"
@@ -746,6 +761,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _saveModel.IsEnabled = _testModel.IsEnabled;
                     _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
                     _singleComponentTrial.IsEnabled = _insertModel.IsEnabled;
+                    _multipleComponentTrial.IsEnabled = _insertModel.IsEnabled;
                 }
             }
         }

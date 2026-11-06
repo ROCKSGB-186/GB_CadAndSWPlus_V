@@ -7,7 +7,7 @@ using SolidWorks.Interop.swconst;
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 {
     /// <summary>记录受限单组件试验的可观察基线；校验通过不表示具有事务或回滚能力。</summary>
-    internal sealed class PipelineSingleComponentBaseline
+    internal sealed class PipelineSingleComponentBaseline : IPipelineAssemblyComponentBaseline
     {
         private const double TransformTolerance = 1e-9;
         private readonly ModelDoc2 _assemblyDocument;

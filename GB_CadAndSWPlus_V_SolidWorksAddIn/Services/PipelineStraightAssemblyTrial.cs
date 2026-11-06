@@ -27,7 +27,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private const double MatrixTolerance = 1e-9;
 
         public static string ValidateTarget(SldWorks application, ModelDoc2 document,
-            string configuration, IntPtr mainWindowHandle, PipelineSingleComponentBaseline? baseline = null)
+            string configuration, IntPtr mainWindowHandle, IPipelineAssemblyComponentBaseline? baseline = null)
         {
             PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
             RequireMainWindow(application, mainWindowHandle);
@@ -55,9 +55,24 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return baseline;
         }
 
+        public static PipelineMultipleComponentBaseline CaptureMultipleComponentTarget(
+            SldWorks application, ModelDoc2 document, string configuration, IntPtr mainWindowHandle)
+        {
+            PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
+            RequireMainWindow(application, mainWindowHandle);
+            var assembly = document as AssemblyDoc ??
+                throw new InvalidOperationException("当前文档不是装配体。");
+            RequireReady(application, assembly, document, configuration, false);
+            RequireClearSelection(document);
+            var baseline = PipelineMultipleComponentBaseline.Capture(application, assembly, document);
+            baseline.Verify(application, assembly, document, null);
+            SolidWorksFileLogger.Info("已记录双零件测试装配体基线，将在插入前后再次核对。");
+            return baseline;
+        }
+
         public static void ActivateAndInsert(SldWorks application, ModelDoc2 assemblyDocument,
             PipelineStraightModelResult model, string path, string configuration, string originalTitle,
-            IntPtr mainWindowHandle, bool autoRebuild, PipelineSingleComponentBaseline? baseline = null)
+            IntPtr mainWindowHandle, bool autoRebuild, IPipelineAssemblyComponentBaseline? baseline = null)
         {
             bool attempted = false;
             string stage = "检查已保存的直管";
@@ -66,7 +81,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
                 RequireMainWindow(application, mainWindowHandle);
                 if (baseline != null && autoRebuild)
-                    throw new InvalidOperationException("单组件装配体试验不允许自动重建。");
+                    throw new InvalidOperationException("已有组件装配体试验不允许自动重建。");
                 RequirePart(application, model.Document, path, true);
                 var part = model.Document as PartDoc ??
                     throw new InvalidOperationException("无法读取已保存直管的零件接口。");
@@ -107,7 +122,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 attempted = true;
                 SolidWorksFileLogger.Info(baseline == null
                     ? "开始向新建空装配体试插入直管；失败时组件可能残留。"
-                    : "开始向单组件测试装配体试插入直管；失败时组件或变更可能残留，不自动回滚。");
+                    : "开始向已有组件的测试装配体试插入直管；失败时组件或变更可能残留，不自动回滚。");
                 Component2 component = assembly.AddComponent5(path,
                     (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig,
                     string.Empty, false, string.Empty, center[0], center[1], center[2]);
@@ -139,7 +154,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     math, path, configuration, partConfiguration, baseline);
                 SolidWorksFileLogger.Info(baseline == null
                     ? "直管已插入新建空装配体，组件单位变换及引用校验通过；未保存装配体。"
-                    : "直管已插入单组件测试装配体，原组件基线与新组件引用、位置校验通过；未重建或保存装配体。");
+                    : "直管已插入已有组件的测试装配体，原组件基线与新组件引用、位置校验通过；未重建或保存装配体。");
                 if (autoRebuild)
                 {
                     stage = "重建并校验试验装配体";
@@ -177,7 +192,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         private static void RequireInserted(SldWorks application, AssemblyDoc assembly, ModelDoc2 assemblyDocument,
             ModelDoc2 partDocument, Component2 component, MathUtility math, string path,
-            string configuration, string partConfiguration, PipelineSingleComponentBaseline? baseline = null)
+            string configuration, string partConfiguration, IPipelineAssemblyComponentBaseline? baseline = null)
         {
             RequireReady(application, assembly, assemblyDocument, configuration, false);
             RequirePart(application, partDocument, path, false);
@@ -199,7 +214,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         }
 
         private static void RequireBeforeInsert(SldWorks application, AssemblyDoc assembly, ModelDoc2 document,
-            string configuration, PipelineSingleComponentBaseline? baseline)
+            string configuration, IPipelineAssemblyComponentBaseline? baseline)
         {
             RequireReady(application, assembly, document, configuration, baseline == null);
             if (baseline != null)
