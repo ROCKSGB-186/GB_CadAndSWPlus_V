@@ -259,7 +259,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             GetPathDirection(p, q, out dx, out dy, out dz, out length);
         }
 
-        private static bool IsFullyQualifiedPath(string path)
+        internal static bool IsFullyQualifiedPath(string path)
         {
             string root = Path.GetPathRoot(path);
             return !string.IsNullOrEmpty(root) &&
@@ -268,14 +268,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                  root.StartsWith(@"\\", StringComparison.Ordinal));
         }
 
-        private static void RequireActive(SldWorks application, ModelDoc2 document)
+        internal static void RequireActive(SldWorks application, ModelDoc2 document)
         {
             object active = application.ActiveDoc;
             if (active == null || application.IsSame(active, document) != (int)swObjectEquality.swObjectSame)
                 throw new InvalidOperationException("本次新零件不再是活动文档，已停止后续操作。");
         }
 
-        private static List<object> ReadComObjects(object value, string description)
+        internal static List<object> ReadComObjects(object value, string description)
         {
             var result = new List<object>();
             if (value == null) return result;
@@ -289,7 +289,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return result;
         }
 
-        private static List<object> ReadFeatures(ModelDoc2 document)
+        internal static List<object> ReadFeatures(ModelDoc2 document)
         {
             var result = new List<object>();
             Feature? current = document.FirstFeature() as Feature;
@@ -302,7 +302,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return result;
         }
 
-        private static Feature FindNewPath(SldWorks application, ModelDoc2 document, List<object> oldFeatures, SketchSegment segment)
+        internal static Feature FindNewPath(SldWorks application, ModelDoc2 document, List<object> oldFeatures, SketchSegment segment)
         {
             Feature? found = null;
             foreach (object item in ReadFeatures(document))
