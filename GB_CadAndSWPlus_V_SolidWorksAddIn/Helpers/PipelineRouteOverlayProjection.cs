@@ -28,10 +28,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
         private static extern void glGetIntegerv(uint name, [Out] int[] values);
 
         /// <summary>只在当前视图绘制回调中调用；视口与视图客户区不一致时拒绝投影。</summary>
-        public static IReadOnlyList<PipelineScreenLine> Project(ModelView view, IReadOnlyList<PipePoint3D> points)
+        public static IReadOnlyList<PipelineScreenLine> Project(ModelView view, IReadOnlyList<PipePoint3D> points,
+            int confirmedCount)
         {
             if (view == null) throw new ArgumentNullException(nameof(view));
             if (points == null) throw new ArgumentNullException(nameof(points));
+            if (confirmedCount < 0 || confirmedCount > points.Count)
+                throw new ArgumentOutOfRangeException(nameof(confirmedCount));
             if (view.HasPerspective())
                 throw new NotSupportedException("透视视图的路线预览尚未完成验证，请关闭透视后重试。");
             if (wglGetCurrentContext() == IntPtr.Zero)
@@ -52,17 +55,30 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
                 viewport[2] != width || viewport[3] != height)
                 throw new NotSupportedException("视图窗口与图形视口尺寸或原点不一致，无法安全显示路线预览。");
 
-            var lines = new List<PipelineScreenLine>(Math.Max(0, points.Count - 1));
-            if (points.Count < 2) return lines.AsReadOnly();
+            var lines = new List<PipelineScreenLine>();
+            if (points.Count == 0) return lines.AsReadOnly();
             ProjectPoint(view, points[0], width, height, out double previousX, out double previousY);
+            if (confirmedCount > 0) AddPointMarker(lines, previousX, previousY, width, height);
             for (int i = 1; i < points.Count; i++)
             {
                 ProjectPoint(view, points[i], width, height, out double x, out double y);
                 lines.Add(new PipelineScreenLine(previousX, previousY, x, y));
+                if (i < confirmedCount) AddPointMarker(lines, x, y, width, height);
                 previousX = x;
                 previousY = y;
             }
             return lines.AsReadOnly();
+        }
+
+        /// <summary>已确认点以固定屏幕尺寸的红色十字显示，不把鼠标候选点误认为已确认。</summary>
+        internal static void AddPointMarker(List<PipelineScreenLine> lines, double x, double y, int width, int height)
+        {
+            if (lines == null) throw new ArgumentNullException(nameof(lines));
+            if (width <= 0 || height <= 0) throw new ArgumentOutOfRangeException(nameof(width));
+            double radiusX = 12.0 / width;
+            double radiusY = 12.0 / height;
+            lines.Add(new PipelineScreenLine(x - radiusX, y, x + radiusX, y));
+            lines.Add(new PipelineScreenLine(x, y - radiusY, x, y + radiusY));
         }
 
         private static void ProjectPoint(ModelView view, PipePoint3D point, int width, int height,

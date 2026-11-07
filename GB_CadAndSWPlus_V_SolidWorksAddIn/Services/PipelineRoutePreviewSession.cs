@@ -32,6 +32,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private readonly DAssemblyDocEvents_ActiveViewChangeNotifyEventHandler? _assemblyViewChanged;
         private readonly DPartDocEvents_ActiveViewChangeNotifyEventHandler? _partViewChanged;
         private readonly List<PipePoint3D> _points = new List<PipePoint3D>();
+        private int _confirmedCount;
 
         private bool _documentSubscribed;
         private bool _modelDocumentSubscribed;
@@ -156,6 +157,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 copy.Add(candidate.Value);
             _points.Clear();
             _points.AddRange(copy);
+            _confirmedCount = confirmedPoints.Count;
             if (!_redrawTimer.IsEnabled) _redrawTimer.Start();
         }
 
@@ -186,7 +188,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         private int OnRender()
         {
-            if (!_started || _disposed || _stopping || _points.Count < 2) return 0;
+            if (!_started || _disposed || _stopping || _points.Count == 0) return 0;
             try
             {
                 if (!IsCurrent())
@@ -194,7 +196,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     RequestStop("活动文档或视图已切换，路线预览已停止。");
                     return 0;
                 }
-                var lines = PipelineRouteOverlayProjection.Project(_view, _points);
+                var lines = PipelineRouteOverlayProjection.Project(_view, _points, _confirmedCount);
                 if (!PipelineScreenLineRenderer.TryDraw(lines, out string error))
                     RequestStop("路线预览绘制失败：" + error);
             }
@@ -313,6 +315,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 catch (Exception ex) when (IsComLifetimeException(ex)) { failures.Add(ex); }
             }
             _points.Clear();
+            _confirmedCount = 0;
             if (redraw && _started && !_viewIsDestroyed)
             {
                 try { _document.GraphicsRedraw2(); }

@@ -34,6 +34,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _applyPlane;
         private readonly Button _undo;
         private readonly Button _edit;
+        private readonly Button _locate;
         private readonly Button _complete;
         private readonly Button _resume;
         private readonly Button _properties;
@@ -88,7 +89,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             });
             heading.Children.Add(new TextBlock
             {
-                Text = "先将焦点切回图形区（如轻按中键）：Z 撤销、X 编辑、空格完成、Esc 取消；输入框和对话框不接管快捷键。",
+                Text = "先将焦点切回图形区（如轻按中键）：Z 撤销、X 编辑、F 定位最后点、空格完成、Esc 取消；输入框和对话框不接管快捷键。",
                 TextWrapping = TextWrapping.Wrap
             });
             var planeRow = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
@@ -119,6 +120,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var actions = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             _undo = AddButton(actions, "撤销最后点", (sender, args) => Undo());
             _edit = AddButton(actions, "编辑最后点", (sender, args) => Edit());
+            _locate = AddButton(actions, "定位最后点", (sender, args) => LocateLast());
             _complete = AddButton(actions, "完成点列", (sender, args) => Complete());
             _resume = AddButton(actions, "恢复选点", (sender, args) => Resume());
             _resume.IsEnabled = false;
@@ -398,6 +400,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     _status.Text = error;
                     return;
                 }
+
                 _selecting = false;
                 SetControlsEnabled(false);
                 StopKeyboardHook();
@@ -405,6 +408,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _properties.IsEnabled = true;
                 _status.Text = "路线点列已完成；准备打开属性试运行页面。";
                 OpenProperties();
+            });
+        }
+
+        private void LocateLast()
+        {
+            Execute("定位路线最后点", () =>
+            {
+                if (!_session!.TryLocateLastPoint(out string error))
+                {
+                    _status.Text = error;
+                    MessageBox.Show(this, error, "路线定位", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                else _status.Text = "已定位最后一个已确认点；移动鼠标可继续选点。";
             });
         }
 
@@ -536,7 +552,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             try
             {
                 SolidWorksFileLogger.Info("打开三点直角路线几何试算；不会生成模型或保存文件。");
-                new PipelineElbowGeometryWindow(_completedRoute) { Owner = this }.ShowDialog();
+                new PipelineElbowGeometryWindow(_completedRoute, _confirmedModelAttributes) { Owner = this }.ShowDialog();
             }
             catch (Exception ex) when (IsOperationException(ex))
             {
@@ -887,6 +903,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             PipelineRouteKeyboardHook? hook = null;
             hook = new PipelineRouteKeyboardHook(_session.ViewWindow, new WindowInteropHelper(this).Owner,
                 () => _selecting && _session != null && _session.CanHandleShortcut,
+                () => _session != null && _session.Points.Count > 0,
                 OnShortcut, error => OnShortcutError(hook!, error));
             _keyboardHook = hook;
             try
@@ -929,6 +946,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     SolidWorksFileLogger.Info("执行路线选点快捷键：撤销最后点。"); Undo(); break;
                 case PipelineRouteShortcut.Edit:
                     SolidWorksFileLogger.Info("执行路线选点快捷键：编辑最后点。"); Edit(); break;
+                case PipelineRouteShortcut.LocateLast:
+                    SolidWorksFileLogger.Info("执行路线选点快捷键：定位最后点。"); LocateLast(); break;
                 case PipelineRouteShortcut.Complete:
                     SolidWorksFileLogger.Info("执行路线选点快捷键：完成点列。"); Complete(); break;
                 case PipelineRouteShortcut.Cancel:
@@ -960,6 +979,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _applyPlane.IsEnabled = enabled;
             _undo.IsEnabled = enabled;
             _edit.IsEnabled = enabled;
+            _locate.IsEnabled = enabled;
             _complete.IsEnabled = enabled;
         }
 

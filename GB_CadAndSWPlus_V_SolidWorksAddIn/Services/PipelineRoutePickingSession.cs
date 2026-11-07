@@ -185,6 +185,36 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return true;
         }
 
+        /// <summary>仅调整视图以显示最后一个已确认点，不修改路线或模型。</summary>
+        public bool TryLocateLastPoint(out string error)
+        {
+            RequireAvailable();
+            var points = _selection.Points;
+            if (points.Count == 0)
+            {
+                error = "尚未确认坐标，无法定位。";
+                SolidWorksFileLogger.Warning("路线定位未执行：" + error);
+                return false;
+            }
+            ClearCandidate();
+            RefreshPreview();
+            PipePoint3D point = points[points.Count - 1];
+            SolidWorksFileLogger.Info("开始定位路线最后点；坐标（毫米）=" + Describe(point) + "。");
+            try
+            {
+                PipelineViewPointLocator.Locate(_application, _document, _view, _viewWindow, point);
+            }
+            catch (Exception ex) when (IsInputException(ex) || ex is AggregateException)
+            {
+                error = "定位最后点失败：" + ex.Message;
+                SolidWorksFileLogger.Warning(error + "；详细信息=" + ex);
+                return false;
+            }
+            SolidWorksFileLogger.Info("已定位路线最后点；坐标（毫米）=" + Describe(point) + "。");
+            error = string.Empty;
+            return true;
+        }
+
         /// <summary>请求重新编辑最后一个点；具体窗口由调用方提供。</summary>
         public bool TryEditLastPoint(out string error)
         {

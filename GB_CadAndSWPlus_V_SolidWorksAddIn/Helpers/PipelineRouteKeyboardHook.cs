@@ -8,7 +8,7 @@ using GB_CadAndSWPlus_V.SolidWorksAddIn.Services;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
 {
-    internal enum PipelineRouteShortcut { Undo, Edit, Complete, Cancel }
+    internal enum PipelineRouteShortcut { Undo, Edit, Complete, Cancel, LocateLast }
 
     internal enum PipelineRouteKeyDecision { Pass, Suppress, Dispatch }
 
@@ -52,6 +52,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
                 case 0x58: shortcut = PipelineRouteShortcut.Edit; return true;
                 case 0x20: shortcut = PipelineRouteShortcut.Complete; return true;
                 case 0x1B: shortcut = PipelineRouteShortcut.Cancel; return true;
+                case 0x46: shortcut = PipelineRouteShortcut.LocateLast; return true;
                 default: shortcut = default(PipelineRouteShortcut); return false;
             }
         }
@@ -64,6 +65,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
         private readonly IntPtr _viewWindow;
         private readonly IntPtr _mainWindow;
         private readonly Func<bool> _enabled;
+        private readonly Func<bool> _canLocate;
         private readonly Action<PipelineRouteShortcut> _execute;
         private readonly Action<Exception> _fault;
         private readonly Dispatcher _dispatcher;
@@ -95,7 +97,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
         [DllImport("kernel32.dll")]
         private static extern uint GetCurrentProcessId();
 
-        public PipelineRouteKeyboardHook(IntPtr viewWindow, IntPtr mainWindow, Func<bool> enabled,
+        public PipelineRouteKeyboardHook(IntPtr viewWindow, IntPtr mainWindow, Func<bool> enabled, Func<bool> canLocate,
             Action<PipelineRouteShortcut> execute, Action<Exception> fault)
         {
             if (viewWindow == IntPtr.Zero) throw new ArgumentException("路线视图窗口句柄无效。", nameof(viewWindow));
@@ -103,6 +105,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
             _viewWindow = viewWindow;
             _mainWindow = mainWindow;
             _enabled = enabled ?? throw new ArgumentNullException(nameof(enabled));
+            _canLocate = canLocate ?? throw new ArgumentNullException(nameof(canLocate));
             _execute = execute ?? throw new ArgumentNullException(nameof(execute));
             _fault = fault ?? throw new ArgumentNullException(nameof(fault));
             _dispatcher = Dispatcher.CurrentDispatcher;
@@ -149,10 +152,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
             try
             {
                 int virtualKey = unchecked((int)key.ToInt64());
-                if (!PipelineRouteKeyboardFilter.TryMapKey(virtualKey, out _))
+                if (!PipelineRouteKeyboardFilter.TryMapKey(virtualKey, out PipelineRouteShortcut mapped))
                     return CallNextHookEx(_hook, code, key, flags);
                 PipelineRouteKeyDecision decision = _filter.Process(virtualKey, flags.ToInt64(),
-                    IsTargetFocus(), HasModifiers(), out PipelineRouteShortcut shortcut);
+                    IsTargetFocus() && (mapped != PipelineRouteShortcut.LocateLast || _canLocate()),
+                    HasModifiers(), out PipelineRouteShortcut shortcut);
                 if (decision == PipelineRouteKeyDecision.Pass) return CallNextHookEx(_hook, code, key, flags);
                 if (decision == PipelineRouteKeyDecision.Dispatch)
                 {
@@ -181,7 +185,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
         {
             try
             {
-                if (!_accepting || !IsTargetFocus()) return;
+                if (!_accepting || !IsTargetFocus() ||
+                    (shortcut == PipelineRouteShortcut.LocateLast && !_canLocate())) return;
                 _execute(shortcut);
             }
             catch (Exception ex) when (IsNonFatal(ex))
