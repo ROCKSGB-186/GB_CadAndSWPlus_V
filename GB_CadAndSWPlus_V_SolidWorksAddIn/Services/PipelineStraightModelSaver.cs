@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 using SolidWorks.Interop.sldworks;
@@ -73,6 +75,29 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public static void Save(SldWorks application, ModelDoc2 document, IntPtr mainWindowHandle, string destinationPath)
         {
+            Save(application, document, mainWindowHandle, destinationPath, "直管");
+        }
+
+        /// <summary>使用同一安全保存流程，并按零件描述报告日志和异常。</summary>
+        public static void Save(SldWorks application, ModelDoc2 document, IntPtr mainWindowHandle,
+            string destinationPath, string partDescription)
+        {
+            SaveCore(application, document, mainWindowHandle, destinationPath, partDescription, null);
+        }
+
+        /// <summary>在预留文件及目录仍受保护时执行复验，并检测文件身份和元数据变化。</summary>
+        public static void Save(SldWorks application, ModelDoc2 document, IntPtr mainWindowHandle,
+            string destinationPath, string partDescription, Action verifyAfterSave)
+        {
+            if (verifyAfterSave == null) throw new ArgumentNullException(nameof(verifyAfterSave));
+            SaveCore(application, document, mainWindowHandle, destinationPath, partDescription, verifyAfterSave);
+        }
+
+        private static void SaveCore(SldWorks application, ModelDoc2 document, IntPtr mainWindowHandle,
+            string destinationPath, string partDescription, Action? verifyAfterSave)
+        {
+            if (string.IsNullOrWhiteSpace(partDescription))
+                throw new ArgumentException("必须指定零件描述。", nameof(partDescription));
             if (application == null) throw new ArgumentNullException(nameof(application));
             if (document == null) throw new ArgumentNullException(nameof(document));
             PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
@@ -106,7 +131,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                             throw new Win32Exception(error, "无法预留目标文件，请检查目录和权限。");
                         }
                         reserved = true;
-                        SolidWorksFileLogger.Info("已预留新的直管零件文件，准备保存。");
+                        SolidWorksFileLogger.Info("已预留新的" + partDescription + "零件文件，准备保存。");
                         stage = "保存新零件";
                         RequireActiveUnsavedPart(application, document);
                         ModelDocExtension extension = document.Extension ??
@@ -134,23 +159,146 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                             throw new Win32Exception(Marshal.GetLastWin32Error(), "无法确认已预留文件的大小。");
                         if (size <= 0 || !File.Exists(path))
                             throw new IOException("保存后目标文件不存在或为空。");
-                        SolidWorksFileLogger.Info("新直管零件已保存，路径、文件大小及文档保存状态校验通过；零件保持打开。");
+                        SolidWorksFileLogger.Info("新" + partDescription + "零件已保存，路径、文件大小及文档保存状态校验通过；零件保持打开。");
+                        if (verifyAfterSave != null)
+                        {
+                            stage = "复验前核对文件身份、状态和内容指纹";
+                            FileSnapshot before = CheckFileSnapshot(path, reservation, null);
+                            byte[] beforeHash = ReadFileHash(path, reservation, before);
+                            SolidWorksFileLogger.Info("已确认" + partDescription + "文件身份、状态和内容指纹，开始保存后复验；请勿并发访问文件。");
+                            stage = "执行保存后复验";
+                            try
+                            {
+                                verifyAfterSave();
+                            }
+                            catch (Exception callbackError) when (callbackError is PipelineElbowModelRevalidationException ||
+                                callbackError is IOException || callbackError is UnauthorizedAccessException ||
+                                callbackError is InvalidOperationException || callbackError is ArgumentException ||
+                                callbackError is NotSupportedException || callbackError is System.Security.SecurityException ||
+                                callbackError is COMException || callbackError is InvalidComObjectException ||
+                                callbackError is Win32Exception || callbackError is CryptographicException)
+                            {
+                                // 回调失败仍检查文件；同时失败时保留两个异常。
+                                stage = "复验失败后核对文件身份、状态和内容指纹";
+                                try
+                                {
+                                    RequireUnchangedFile(path, reservation, before, beforeHash);
+                                }
+                                catch (Exception checkError) when (checkError is IOException ||
+                                    checkError is UnauthorizedAccessException || checkError is Win32Exception ||
+                                    checkError is ArgumentException || checkError is NotSupportedException ||
+                                    checkError is System.Security.SecurityException || checkError is CryptographicException)
+                                {
+                                    SolidWorksFileLogger.Error("保存后复验失败且文件核对失败；异常类型=" +
+                                        checkError.GetType().Name + "；请检查文件，未删除或回滚。");
+                                    var failures = new AggregateException(callbackError, checkError);
+                                    if (callbackError is PipelineElbowModelRevalidationException elbowError)
+                                        throw new PipelineElbowModelRevalidationException(
+                                            "复验失败且目标文件核对失败", elbowError.ObservedPath, failures);
+                                    throw new IOException("复验失败且目标文件核对失败，请检查文件。", failures);
+                                }
+                                throw;
+                            }
+                            stage = "复验后核对文件身份、状态和内容指纹";
+                            RequireUnchangedFile(path, reservation, before, beforeHash);
+                            SolidWorksFileLogger.Info("保存后复验完成，" + partDescription + "文件身份、大小、最后写入时间及内容指纹核对通过。");
+                        }
                     }
                 }
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException ||
+            catch (Exception ex) when (!(ex is PipelineElbowModelRevalidationException) &&
+                                       (ex is IOException || ex is UnauthorizedAccessException ||
                                        ex is InvalidOperationException || ex is ArgumentException ||
                                        ex is NotSupportedException || ex is System.Security.SecurityException ||
-                                       ex is COMException || ex is InvalidComObjectException || ex is Win32Exception)
+                                       ex is COMException || ex is InvalidComObjectException || ex is Win32Exception ||
+                                       ex is CryptographicException))
             {
-                SolidWorksFileLogger.Error("独立直管保存失败；阶段=" + stage + "；异常类型=" + ex.GetType().Name +
+                SolidWorksFileLogger.Error("独立" + partDescription + "保存失败；阶段=" + stage + "；异常类型=" + ex.GetType().Name +
+                    (ex is Win32Exception win32 ? "；Windows 错误码=" + win32.NativeErrorCode : string.Empty) +
                     "；已预留文件=" + reserved + "；已尝试保存=" + attempted + "。");
                 string state = reserved
                     ? "目标文件可能存在且可能不完整；零件的保存状态也可能已改变。未自动删除文件、关闭零件或回滚，请检查后再操作。"
                     : "未预留目标文件；新零件仍可能打开，未自动关闭或回滚。";
-                throw new PipelineStraightModelSaveException("保存直管失败；阶段=" + stage + "；原因=" + ex.Message +
+                throw new PipelineStraightModelSaveException("保存" + partDescription + "失败；阶段=" + stage + "；原因=" + ex.Message +
                     "\n目标路径：" + path + "\n" + state, path, reserved, attempted, ex);
             }
+        }
+
+        private struct FileSnapshot
+        {
+            public uint Volume, IndexHigh, IndexLow;
+            public long Size;
+            public int LastWriteHigh, LastWriteLow;
+        }
+
+        private static FileSnapshot ReadFileSnapshot(SafeFileHandle handle)
+        {
+            if (!GetFileInformationByHandle(handle, out HandleInformation info))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法核对目标文件身份和状态。");
+            if ((info.Attributes & ((uint)FileAttributes.ReparsePoint | (uint)FileAttributes.Directory)) != 0)
+                throw new IOException("目标文件变成了重解析点或目录，无法安全复验。");
+            if (!GetFileSizeEx(handle, out long size))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "无法核对目标文件大小。");
+            ulong informationSize = ((ulong)info.FileSizeHigh << 32) | info.FileSizeLow;
+            if (size <= 0 || informationSize != (ulong)size)
+                throw new IOException("目标文件为空或检查期间大小发生变化。");
+            return new FileSnapshot
+            {
+                Volume = info.VolumeSerialNumber,
+                IndexHigh = info.FileIndexHigh,
+                IndexLow = info.FileIndexLow,
+                Size = size,
+                LastWriteHigh = info.LastWriteTime.dwHighDateTime,
+                LastWriteLow = info.LastWriteTime.dwLowDateTime
+            };
+        }
+
+        private static bool SameFileSnapshot(FileSnapshot left, FileSnapshot right)
+        {
+            return left.Volume == right.Volume && left.IndexHigh == right.IndexHigh &&
+                left.IndexLow == right.IndexLow && left.Size == right.Size &&
+                left.LastWriteHigh == right.LastWriteHigh && left.LastWriteLow == right.LastWriteLow;
+        }
+
+        private static FileSnapshot CheckFileSnapshot(string path, SafeFileHandle reservation, FileSnapshot? expected)
+        {
+            // 重新按路径打开，不跟随末端重解析点，再与一直持有的预留句柄比较。
+            using (SafeFileHandle current = CreateFileW(path, GenericRead, ShareReadWrite,
+                IntPtr.Zero, OpenExisting, NormalAttributes | OpenReparsePoint, IntPtr.Zero))
+            {
+                if (current.IsInvalid)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "无法重新打开目标文件核对身份；文件可能已删除、替换或不可访问。");
+                FileSnapshot reserved = ReadFileSnapshot(reservation);
+                FileSnapshot opened = ReadFileSnapshot(current);
+                if (!SameFileSnapshot(reserved, opened))
+                    throw new IOException("目标路径对应的文件身份、大小或最后写入时间与预留文件不一致。");
+                if (expected.HasValue && !SameFileSnapshot(reserved, expected.Value))
+                    throw new IOException("保存后复验期间目标文件身份、大小或最后写入时间发生变化。");
+                return reserved;
+            }
+        }
+
+        private static byte[] ReadFileHash(string path, SafeFileHandle reservation, FileSnapshot expected)
+        {
+            // 与 SolidWorks 的写入句柄兼容；指纹用于发现复验期间的内容变化，并非独占锁。
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                if (!SameFileSnapshot(ReadFileSnapshot(stream.SafeFileHandle), expected))
+                    throw new IOException("计算内容指纹前目标文件身份或状态发生变化。");
+                byte[] hash = sha256.ComputeHash(stream);
+                if (!SameFileSnapshot(ReadFileSnapshot(stream.SafeFileHandle), expected))
+                    throw new IOException("计算内容指纹期间目标文件身份或状态发生变化。");
+                CheckFileSnapshot(path, reservation, expected);
+                return hash;
+            }
+        }
+
+        private static void RequireUnchangedFile(string path, SafeFileHandle reservation, FileSnapshot expected, byte[] expectedHash)
+        {
+            CheckFileSnapshot(path, reservation, expected);
+            if (!ReadFileHash(path, reservation, expected).SequenceEqual(expectedHash))
+                throw new IOException("保存后复验期间目标文件内容指纹发生变化。");
         }
 
         internal static string ValidatePath(string destinationPath)

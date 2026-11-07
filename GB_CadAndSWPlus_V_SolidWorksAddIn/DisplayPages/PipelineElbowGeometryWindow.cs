@@ -26,6 +26,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly TextBox _radius;
         private readonly TextBox _result;
         private readonly Button _testElbow;
+        private readonly Button _saveElbow;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -49,7 +50,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "试算与尺寸核验不生成模型；独立弯头验证会新建未保存的测试零件，不插入装配体。结果不代表标准管件选型、规格校核或碰撞检查。",
+                Text = "试算与尺寸核验不生成模型；独立弯头可验证或保存为新测试零件，不插入装配体或写入属性。结果不代表标准管件选型、规格校核或碰撞检查。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -70,12 +71,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var pieces = new Button { Content = "三零件尺寸核验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             pieces.Click += CalculatePieces;
             _testElbow = new Button { Content = "验证独立弯头", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
-            _testElbow.Click += TestElbow;
+            _testElbow.Click += (sender, args) => RunElbowTrial(false);
+            _saveElbow = new Button { Content = "保存独立弯头", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _saveElbow.Click += (sender, args) => RunElbowTrial(true);
             var close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             close.Click += (sender, args) => Close();
             buttons.Children.Add(calculate);
             buttons.Children.Add(pieces);
             buttons.Children.Add(_testElbow);
+            buttons.Children.Add(_saveElbow);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
@@ -181,7 +185,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
         }
 
-        private void TestElbow(object sender, RoutedEventArgs args)
+        private void RunElbowTrial(bool saveModel)
         {
             if (_building)
             {
@@ -190,8 +194,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
             if (!TryCreatePlan(out PipelineThreePiecePlan? plan)) return;
             PipelineElbowModelResult? model = null;
+            string? destination = null;
+            bool saved = false;
             _building = true;
             _testElbow.IsEnabled = false;
+            _saveElbow.IsEnabled = false;
             try
             {
                 RequireSourceDocument();
@@ -215,8 +222,37 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     }
                     template = dialog.FileName;
                 }
+                if (saveModel)
+                {
+                    var saveDialog = new Microsoft.Win32.SaveFileDialog
+                    {
+                        Title = "选择新的独立弯头零件文件",
+                        Filter = "SolidWorks 零件 (*.sldprt)|*.sldprt",
+                        DefaultExt = ".sldprt",
+                        AddExtension = true,
+                        CheckPathExists = true,
+                        OverwritePrompt = false,
+                        FileName = "弯头.sldprt"
+                    };
+                    if (saveDialog.ShowDialog(this) != true)
+                    {
+                        _result.Text = "已取消选择保存路径，未创建弯头。";
+                        SolidWorksFileLogger.Info("用户取消选择弯头保存路径，未创建零件。");
+                        return;
+                    }
+                    destination = PipelineStraightModelSaver.ValidatePath(saveDialog.FileName);
+                    if (File.Exists(destination) || Directory.Exists(destination))
+                        throw new IOException("目标文件或目录已存在，未覆盖；请选择新的文件名。");
+                    if (_application.GetOpenDocumentByName(destination) != null)
+                        throw new InvalidOperationException("目标路径已被 SolidWorks 文档使用，请选择其他文件名。");
+                }
+                string action = saveModel
+                    ? "将新建独立弯头，并尝试保存到新文件：\n" + destination +
+                      "\n仅用于专用空测试文件夹，不作正式文件；保存期间请勿让其他程序或人员访问目标文件。\n" +
+                      "试运行仅支持普通本机固定 NTFS 磁盘，不覆盖预先存在的文件；保存失败时可能留下空文件或不完整文件，请检查后再处理。\n"
+                    : "将新建独立的未保存弯头测试零件。\n";
                 if (MessageBox.Show(this,
-                    "将新建独立的未保存弯头测试零件，不保存、不插入当前装配体，也不写入属性或数据库。\n" +
+                    action + "不会插入当前装配体，也不写入属性或数据库。\n" +
                     "失败时可能留下未保存或不完整的新零件，不会自动关闭或回滚；请勿用于正式工程。是否继续？",
                     "独立弯头验证", MessageBoxButton.YesNo, MessageBoxImage.Warning,
                     MessageBoxResult.No) != MessageBoxResult.Yes)
@@ -228,8 +264,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 RequireSourceDocument();
                 PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
                 model = PipelineElbowModelBuilder.Build(_application, _mainWindow, template, plan!);
-                _result.Text = "独立弯头验证完成；新零件未保存，未插入装配体，未写入属性或数据库。";
+                if (saveModel)
+                {
+                    PipelineStraightModelSaver.Save(_application, model.Document, _mainWindow, destination!, "弯头",
+                        () => PipelineElbowModelBuilder.Revalidate(_application, model, plan!, destination!));
+                    saved = true;
+                    _result.Text = "独立弯头已保存并通过复验（当前打开文档的几何和文件状态）；尚未重新打开文件核验。未插入装配体，未写入属性或数据库。";
+                }
+                else
+                {
+                    _result.Text = "独立弯头验证完成；新零件未保存，未插入装配体，未写入属性或数据库。";
+                }
                 MessageBox.Show(this, _result.Text + "\n零件：" + model.Title +
+                    (saved ? "\n保存路径：" + destination : string.Empty) +
                     "\n请检查模型；当前仅为试运行，不代表标准件或工程规范校核。",
                     "独立弯头验证", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -237,6 +284,20 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 _result.Text = "独立弯头验证失败：" + ex.Message;
                 MessageBox.Show(this, _result.Text, "独立弯头验证失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (PipelineStraightModelSaveException ex)
+            {
+                _result.Text = "独立弯头保存未完全成功，请检查文件和零件后再操作。";
+                MessageBox.Show(this, _result.Text + "\n" + ex.Message, "独立弯头保存失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (PipelineElbowModelRevalidationException ex)
+            {
+                SolidWorksFileLogger.Error("弯头已保存但复验失败：" + ex);
+                _result.Text = "独立弯头已保存，但保存后复验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text + "\n保存路径：" + destination +
+                    "\n请检查文件和零件；未自动关闭或回滚。", "独立弯头复验失败",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
                 ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
@@ -246,6 +307,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 SolidWorksFileLogger.Error("独立弯头验证失败：" + ex);
                 _result.Text = "独立弯头验证失败：" + ex.Message;
                 string context = model == null ? "尚未完成新零件创建；请检查是否有新文档残留。" :
+                    saved ? "弯头已保存到：\n" + destination + "\n后续复验未完成，请检查文件和零件；未自动关闭或回滚。" :
                     "新零件“" + model.Title + "”可能仍然打开，未自动关闭或回滚。";
                 MessageBox.Show(this, _result.Text + "\n" + context, "独立弯头验证失败",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -254,6 +316,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 _building = false;
                 _testElbow.IsEnabled = true;
+                _saveElbow.IsEnabled = true;
             }
         }
 
