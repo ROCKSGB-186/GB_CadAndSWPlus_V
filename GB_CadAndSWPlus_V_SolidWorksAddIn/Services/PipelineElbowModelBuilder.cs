@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -19,9 +20,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
     internal sealed class PipelineElbowModelBuildException : Exception
     {
-        internal PipelineElbowModelBuildException(string stage, string? title, Exception inner)
+        internal PipelineElbowModelBuildException(string stage, string? title, bool newDocumentAttempted, Exception inner)
             : base("弯头生成失败；阶段=" + stage + "；原因=" + inner.Message +
-                "。可能存在未保存的新文档；未自动关闭或回滚。", inner)
+                (newDocumentAttempted
+                    ? title == null ? "。可能存在未保存的新文档；未自动关闭或回滚。"
+                        : "。测试零件“" + title + "”可能不完整；未自动关闭或回滚。"
+                    : "。尚未尝试新建零件。"), inner)
         { Stage = stage; DocumentTitle = title; }
         public string Stage { get; }
         public string? DocumentTitle { get; }
@@ -35,6 +39,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         {
             string stage = "输入和线程预检";
             string? title = null;
+            bool newDocumentAttempted = false;
             try
             {
                 if (application == null) throw new ArgumentNullException(nameof(application));
@@ -54,6 +59,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 stage = "记录已有文档并新建零件";
                 List<object> previous = Straight.ReadComObjects(application.GetDocuments(), "已有文档列表");
                 SolidWorksFileLogger.Info("开始新建独立未保存弯头零件。");
+                newDocumentAttempted = true;
                 var document = application.NewDocument(partTemplatePath, 0, 0, 0) as ModelDoc2;
                 if (document == null) throw new InvalidOperationException("新建文档未返回零件对象。");
                 foreach (object old in previous)
@@ -131,11 +137,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 SolidWorksFileLogger.Info("独立弯头重建完成：实体、环面、端面边界及体积校验通过；零件未保存。");
                 return new PipelineElbowModelResult(document, title);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is COMException || ex is InvalidComObjectException ||
+                ex is InvalidOperationException || ex is ArgumentException || ex is ArithmeticException ||
+                ex is NotSupportedException || ex is IOException || ex is UnauthorizedAccessException ||
+                ex is System.Security.SecurityException)
             {
                 SolidWorksFileLogger.Error("独立弯头生成失败；阶段=" + stage + "；异常类型=" +
                     ex.GetType().Name + "；未执行关闭或回滚。");
-                throw new PipelineElbowModelBuildException(stage, title, ex);
+                throw new PipelineElbowModelBuildException(stage, title, newDocumentAttempted, ex);
             }
         }
 
@@ -229,6 +238,24 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 var edge = item as Edge ?? throw new InvalidOperationException("无法读取环面边界。");
                 var curve = edge.GetCurve() as Curve ?? throw new InvalidOperationException("无法读取边界曲线。");
                 if (!curve.IsCircle()) continue;
+                // 环面接缝也可能是圆弧；只有与端面相接的圆边才是管口。
+                int plane = -1;
+                for (int i = 0; i < planes.Count; i++)
+                {
+                    RequireTarget(app, doc);
+                    foreach (object candidate in Straight.ReadComObjects(planes[i].GetEdges(), "端面边界"))
+                    {
+                        int same = app.IsSame(candidate, edge);
+                        if (same == (int)swObjectEquality.swObjectSame)
+                        {
+                            if (plane != -1) throw new InvalidOperationException("圆边连接多个端面。");
+                            plane = i;
+                        }
+                        else if (same != (int)swObjectEquality.swObjectNotSame)
+                            throw new InvalidOperationException("无法比较边界身份。");
+                    }
+                }
+                if (plane < 0) continue;
                 circles++;
                 var p = curve.CircleParams as double[];
                 if (p == null || p.Length < 7) throw new InvalidOperationException("无法读取端部圆边参数。");
@@ -254,23 +281,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     !Geometry.Near(offset.Length(), radius, g.PositionTolerance) ||
                     Math.Abs(offset.Dot(normal)) > g.PositionTolerance)
                     throw new InvalidOperationException("圆边实际裁剪端点无效。");
-                int plane = -1;
-                for (int i = 0; i < planes.Count; i++)
-                {
-                    RequireTarget(app, doc);
-                    foreach (object candidate in Straight.ReadComObjects(planes[i].GetEdges(), "端面边界"))
-                    {
-                        int same = app.IsSame(candidate, edge);
-                        if (same == (int)swObjectEquality.swObjectSame)
-                        {
-                            if (plane != -1) throw new InvalidOperationException("圆边连接多个端面。");
-                            plane = i;
-                        }
-                        else if (same != (int)swObjectEquality.swObjectNotSame)
-                            throw new InvalidOperationException("无法比较边界身份。");
-                    }
-                }
-                if (plane < 0 || (start && startPlane >= 0) || (end && endPlane >= 0))
+                if ((start && startPlane >= 0) || (end && endPlane >= 0))
                     throw new InvalidOperationException("端部圆边连接关系无效。");
                 if (start) startPlane = plane; else endPlane = plane;
             }

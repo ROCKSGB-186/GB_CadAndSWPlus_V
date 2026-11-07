@@ -79,7 +79,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线仅可进行直角几何试算。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算并验证独立未保存弯头。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -505,7 +505,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         MessageBox.Show(this, "属性只保存在本次窗口中，未生成或更新模型，也未自动保存配置。\n" +
                             blockReason + (_completedRoute.Points.Count == 2 && !_insertionAttempted
                                 ? "\n如需专用测试装配体试验，可使用路线窗口的【已有单零件试验】或【已有双零件试验】。" : "") +
-                            (_completedRoute.Points.Count == 3 ? "\n可使用路线窗口的【三点直角试算】；仅计算几何，不生成模型。" : "") +
+                            (_completedRoute.Points.Count == 3 ? "\n可使用【三点直角试算】核验尺寸，或手动验证未保存的独立弯头；不会自动插入装配体。" : "") +
                             "\n关闭路线窗口后本次属性将丢失。",
                             "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
@@ -552,7 +552,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             try
             {
                 SolidWorksFileLogger.Info("打开三点直角路线几何试算；不会生成模型或保存文件。");
-                new PipelineElbowGeometryWindow(_completedRoute, _confirmedModelAttributes) { Owner = this }.ShowDialog();
+                new PipelineElbowGeometryWindow(_completedRoute, _confirmedModelAttributes,
+                    _application, _document, new WindowInteropHelper(this).Owner) { Owner = this }.ShowDialog();
             }
             catch (Exception ex) when (IsOperationException(ex))
             {
@@ -565,7 +566,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (_insertionAttempted)
                 return "本次路线已执行过插入试验，修改属性不会更新已生成的模型。";
             if (_completedRoute == null || _completedRoute.Points.Count != 2)
-                return "多点路线暂不能生成模型。";
+                return "多点路线暂不能自动插入装配体。";
             string? configuration = _assemblyRouteGuard.Configuration;
             if (!_assemblyRouteGuard.IsValid || string.IsNullOrWhiteSpace(configuration))
                 return "无法确认路线始终位于同一装配体根级及配置，暂不能自动插入。";
@@ -592,7 +593,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 (nonEmptyTrial && (!insertModel || !saveModel)) || (singleComponentTrial && multipleComponentTrial))
             {
                 SolidWorksFileLogger.Warning("独立直管验证未启动：路线、属性状态或插入试验锁定不符合要求。");
-                MessageBox.Show(this, "请先完成两个坐标并确认管道属性。多点路线暂不支持建模；已执行过的插入试验不能在同一路线上重复。",
+                MessageBox.Show(this, "请先完成两个坐标并确认管道属性。直管试验仅支持两点路线；已执行过的插入试验不能在同一路线上重复。",
                     "独立直管验证", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
