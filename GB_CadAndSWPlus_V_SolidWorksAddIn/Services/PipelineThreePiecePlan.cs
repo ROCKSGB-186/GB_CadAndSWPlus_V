@@ -5,7 +5,7 @@ using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 {
     /// <summary>
-    /// 三点直角路线的实际毫米尺寸几何试算，不代表符合工程规范或存在真实构件。
+    /// 三点路线的实际毫米尺寸几何试算，不代表符合工程规范或存在真实构件。
     /// 不自动生成、保存、插入模型，也不写入数据库。
     /// </summary>
     internal sealed class PipelineThreePiecePlan

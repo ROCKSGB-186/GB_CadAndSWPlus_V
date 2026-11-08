@@ -15,30 +15,34 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 {
-    /// <summary>三点直角路线试算及独立未保存弯头试验。</summary>
+    /// <summary>三点弯头路线试算及独立弯头试验。</summary>
     internal sealed class PipelineElbowGeometryWindow : Window
     {
-        private readonly PipeRoute _route;
+        private PipeRoute _route;
+        private readonly Action<PipeRoute>? _routeChanged;
         private readonly IDictionary<string, string>? _attributes;
         private readonly SldWorks _application;
         private readonly ModelDoc2 _sourceDocument;
         private readonly IntPtr _mainWindow;
         private readonly TextBox _radius;
         private readonly TextBox _result;
+        private readonly ComboBox _targetAngle;
+        private readonly Button _adjustAngle;
         private readonly Button _testElbow;
         private readonly Button _saveElbow;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
-            SldWorks application, ModelDoc2 sourceDocument, IntPtr mainWindow)
+            SldWorks application, ModelDoc2 sourceDocument, IntPtr mainWindow, Action<PipeRoute>? routeChanged = null)
         {
             _route = route ?? throw new ArgumentNullException(nameof(route));
+            _routeChanged = routeChanged;
             _attributes = attributes == null ? null : new Dictionary<string, string>(attributes, StringComparer.OrdinalIgnoreCase);
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _sourceDocument = sourceDocument ?? throw new ArgumentNullException(nameof(sourceDocument));
             if (mainWindow == IntPtr.Zero) throw new ArgumentException("SolidWorks 主窗口句柄无效。", nameof(mainWindow));
             _mainWindow = mainWindow;
-            Title = "三点直角路线几何试算";
+            Title = "三点弯头路线几何试算";
             Width = 560;
             Height = 470;
             MinWidth = 480;
@@ -50,7 +54,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "试算与尺寸核验不生成模型；独立弯头可验证或保存为新测试零件，不插入装配体或写入属性。结果不代表标准管件选型、规格校核或碰撞检查。",
+                Text = "试运行支持 45°、90°、135° 转向角；其他角度可选择调整方案。独立弯头不插入装配体或写入属性；结果不代表标准件选型、规范校核或碰撞检查。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -62,6 +66,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _radius = new TextBox { MinWidth = 120 };
             row.Children.Add(_radius);
             heading.Children.Add(row);
+            var adjustmentRow = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
+            adjustmentRow.Children.Add(new TextBlock { Text = "目标转向角：", VerticalAlignment = VerticalAlignment.Center });
+            _targetAngle = new ComboBox { Width = 75, Margin = new Thickness(0, 0, 8, 0), ItemsSource = new[] { 45.0, 90.0, 135.0 }, SelectedIndex = 1 };
+            adjustmentRow.Children.Add(_targetAngle);
+            _adjustAngle = new Button { Content = "查看角度调整方案", Padding = new Thickness(6, 2, 6, 2) };
+            _adjustAngle.Click += (sender, args) => ShowAngleAdjustment();
+            adjustmentRow.Children.Add(_adjustAngle);
+            heading.Children.Add(adjustmentRow);
             DockPanel.SetDock(heading, Dock.Top);
             root.Children.Add(heading);
 
@@ -106,7 +118,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 PipelineElbowGeometryResult geometry = PipelineElbowGeometry.Calculate(_route, radius);
                 var result = new StringBuilder();
-                result.AppendLine("单位：mm；三个点表示中心线理论路径。");
+                result.AppendLine("单位：mm；三个点表示中心线理论路径，角度为前进方向的转向角。");
+                result.AppendLine("转向角：" + Format(geometry.TurnAngleDegrees) + "°");
                 result.AppendLine("起点：" + Describe(geometry.Start));
                 result.AppendLine("理论转角点：" + Describe(geometry.Corner));
                 result.AppendLine("终点：" + Describe(geometry.End));
@@ -120,14 +133,115 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 result.AppendLine("总中心线长度：" + Format(geometry.TotalLengthMm));
                 result.AppendLine("以上仅为理论几何试算，不代表管件标准尺寸或实际下料长度；未生成模型。");
                 _result.Text = result.ToString();
-                SolidWorksFileLogger.Info("三点直角路线几何试算成功；未修改模型或保存文件。");
+                SolidWorksFileLogger.Info("三点弯头路线几何试算成功；转向角=" + Format(geometry.TurnAngleDegrees) + "°；未修改模型或保存文件。");
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is ArithmeticException)
             {
                 _result.Text = "试算未完成：" + ex.Message;
-                SolidWorksFileLogger.Warning("三点直角路线几何试算失败：" + ex.Message);
-                MessageBox.Show(this, ex.Message, "三点直角路线试算",
+                SolidWorksFileLogger.Warning("三点弯头路线几何试算失败：" + ex.Message);
+                MessageBox.Show(this, ex.Message, "三点弯头路线试算",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ShowAngleAdjustment()
+        {
+            if (!(_targetAngle.SelectedItem is double target))
+            {
+                SolidWorksFileLogger.Warning("角度调整未启动：尚未选择目标转向角。");
+                MessageBox.Show(this, "请选择目标转向角。", "角度调整", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (_routeChanged == null)
+            {
+                SolidWorksFileLogger.Warning("角度调整未启动：无法更新原路线。");
+                MessageBox.Show(this, "无法更新原路线，请关闭窗口后重新打开。", "角度调整", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            try
+            {
+                PipelineAngleAdjustmentResult proposal = PipelineAngleAdjustment.Calculate(_route, target);
+                var dialog = new Window
+                {
+                    Title = "选择路线角度调整方案",
+                    Owner = this,
+                    Width = 700,
+                    Height = 410,
+                    MinWidth = 540,
+                    MinHeight = 330,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    ShowInTaskbar = false
+                };
+                var panel = new DockPanel { Margin = new Thickness(12) };
+                var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+                var moveEnd = new Button { Content = "选择调整终点", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = proposal.MoveEndRoute != null };
+                var moveCorner = new Button { Content = "选择调整转角点", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = proposal.MoveCornerRoute != null };
+                var cancel = new Button { Content = "取消", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
+                moveEnd.Click += (sender, args) => ApplyAngleAdjustment(dialog, proposal.MoveEndRoute!, "终点", target);
+                moveCorner.Click += (sender, args) => ApplyAngleAdjustment(dialog, proposal.MoveCornerRoute!, "转角点", target);
+                cancel.Click += (sender, args) => dialog.Close();
+                buttons.Children.Add(moveEnd);
+                buttons.Children.Add(moveCorner);
+                buttons.Children.Add(cancel);
+                DockPanel.SetDock(buttons, Dock.Bottom);
+                panel.Children.Add(buttons);
+                var text = new StringBuilder();
+                text.AppendLine("角度为前进方向的转向角；单位：度、mm。");
+                text.AppendLine("当前角度：" + Format(proposal.OriginalAngleDegrees) + "°；目标角度：" + Format(proposal.TargetAngleDegrees) + "°。");
+                text.AppendLine("原起点：" + Describe(_route.Points[0]));
+                text.AppendLine("原转角点：" + Describe(_route.Points[1]));
+                text.AppendLine("原终点：" + Describe(_route.Points[2]));
+                text.AppendLine();
+                text.AppendLine(proposal.MoveEndRoute == null
+                    ? "方案一不可用：" + proposal.MoveEndUnavailableReason
+                    : "方案一：保持起点、转角点及出口段长度，调整终点为 " + Describe(proposal.MoveEndRoute.Points[2]));
+                text.AppendLine(proposal.MoveCornerRoute == null
+                    ? "方案二不可用：" + proposal.MoveCornerUnavailableReason
+                    : "方案二：保持起点、终点，调整转角点为 " + Describe(proposal.MoveCornerRoute.Points[1]));
+                text.AppendLine();
+                text.AppendLine("候选仅用于当前三点自由端路线；在原路线平面内调整，不修改已创建的模型。应用后还需重新核验半径和直管长度。");
+                panel.Children.Add(new TextBox
+                {
+                    Text = text.ToString(), IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                });
+                dialog.Content = panel;
+                SolidWorksFileLogger.Info("已生成角度调整候选；当前角度=" + Format(proposal.OriginalAngleDegrees) +
+                    "°；目标角度=" + Format(target) + "°；尚未修改路线。");
+                dialog.ShowDialog();
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is ArithmeticException)
+            {
+                SolidWorksFileLogger.Warning("角度调整方案计算失败：" + ex.Message);
+                MessageBox.Show(this, ex.Message, "角度调整", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void ApplyAngleAdjustment(Window dialog, PipeRoute adjusted, string changedPoint, double target)
+        {
+            int index = changedPoint == "终点" ? 2 : 1;
+            if (MessageBox.Show(dialog,
+                "目标转向角：" + Format(target) + "°。\n" + changedPoint + "原坐标：" + Describe(_route.Points[index]) +
+                "\n调整后坐标：" + Describe(adjusted.Points[index]) +
+                "\n将更新本次路线坐标，不会修改已创建的模型。是否应用？",
+                "确认路线角度调整", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+            {
+                SolidWorksFileLogger.Info("用户取消应用角度调整，路线未改变。");
+                return;
+            }
+            try
+            {
+                _routeChanged!(adjusted);
+                _route = adjusted;
+                _result.Text = "已按用户确认更新路线；请重新试算及核验尺寸。";
+                SolidWorksFileLogger.Info("用户确认角度调整；目标转向角=" + Format(target) + "°；调整" + changedPoint +
+                    "为 " + Describe(adjusted.Points[index]) + "；未修改已有模型。");
+                dialog.Close();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException)
+            {
+                SolidWorksFileLogger.Warning("应用角度调整失败：" + ex.Message);
+                MessageBox.Show(dialog, "无法更新路线：" + ex.Message, "角度调整", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
@@ -142,6 +256,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             result.AppendLine("简化弯头出口：" + Describe(plan.Elbow.ExitTangent));
             result.AppendLine("简化弯头中心线圆心：" + Describe(plan.Elbow.Center));
             result.AppendLine("弯头中心线弧长：" + Format(plan.Elbow.ArcLengthMm));
+            result.AppendLine("转向角：" + Format(plan.Elbow.TurnAngleDegrees) + "°");
             result.AppendLine("第二根直管：" + Describe(plan.OutletRoute.Points[0]) + " → " + Describe(plan.OutletRoute.Points[1]));
             result.AppendLine("第二根直管中心线长度：" + Format(plan.Elbow.OutletStraightLengthMm));
             result.AppendLine("外径：" + Format(plan.OutsideDiameterMm) + "；壁厚：" + Format(plan.WallThicknessMm) +
@@ -199,6 +314,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _building = true;
             _testElbow.IsEnabled = false;
             _saveElbow.IsEnabled = false;
+            _adjustAngle.IsEnabled = false;
+            _targetAngle.IsEnabled = false;
             try
             {
                 RequireSourceDocument();
@@ -317,6 +434,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 _building = false;
                 _testElbow.IsEnabled = true;
                 _saveElbow.IsEnabled = true;
+                _adjustAngle.IsEnabled = true;
+                _targetAngle.IsEnabled = true;
             }
         }
 
@@ -342,9 +461,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 !double.IsNaN(radius) && !double.IsInfinity(radius) && radius > 0)
                 return true;
             _result.Text = "试算未完成，请输入大于零的有限中心线半径。";
-            SolidWorksFileLogger.Warning("三点直角路线试算失败：中心线半径无效。");
+            SolidWorksFileLogger.Warning("三点弯头路线试算失败：中心线半径无效。");
             MessageBox.Show(this, "请输入大于零的有限中心线半径，单位为毫米。",
-                "三点直角路线试算", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "三点弯头路线试算", MessageBoxButton.OK, MessageBoxImage.Warning);
             _radius.Focus();
             return false;
         }

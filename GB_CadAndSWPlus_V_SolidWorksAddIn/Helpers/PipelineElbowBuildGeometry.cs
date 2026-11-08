@@ -36,6 +36,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
 
         internal Vector Start, End, Center, Mid, Axis, StartTangent, EndTangent;
         internal double Radius, Inner, Outer, Wall, ArcLength, Volume, PositionTolerance, RadiusTolerance;
+        public double TurnAngleRadians { get; private set; }
+        public double TurnAngleDegrees { get; private set; }
 
         internal static PipelineElbowBuildGeometry Create(PipelineThreePiecePlan plan)
         {
@@ -50,6 +52,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
             if (checkedPlan.Elbow.EntryTangent != e.EntryTangent || checkedPlan.Elbow.ExitTangent != e.ExitTangent ||
                 checkedPlan.Elbow.Center != e.Center || checkedPlan.InsideDiameterMm != plan.InsideDiameterMm ||
                 checkedPlan.Elbow.ArcLengthMm != e.ArcLengthMm ||
+                checkedPlan.Elbow.TurnAngleRadians != e.TurnAngleRadians ||
+                checkedPlan.Elbow.TurnAngleDegrees != e.TurnAngleDegrees ||
                 plan.InletRoute.Points.Count != 2 || plan.OutletRoute.Points.Count != 2 ||
                 plan.InletRoute.Points[0] != e.Start || plan.InletRoute.Points[1] != e.EntryTangent ||
                 plan.OutletRoute.Points[0] != e.ExitTangent || plan.OutletRoute.Points[1] != e.End)
@@ -60,7 +64,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
                 Start = Convert(e.EntryTangent), End = Convert(e.ExitTangent), Center = Convert(e.Center),
                 Radius = Meters(e.RadiusMm), Inner = Meters(plan.InsideDiameterMm) / 2,
                 Outer = Meters(plan.OutsideDiameterMm) / 2, Wall = Meters(plan.WallThicknessMm),
-                ArcLength = Meters(e.ArcLengthMm)
+                ArcLength = Meters(e.ArcLengthMm),
+                TurnAngleRadians = e.TurnAngleRadians, TurnAngleDegrees = e.TurnAngleDegrees
             };
             double coordinateScale = Math.Max(g.Center.Length(), Math.Max(g.Start.Length(), g.End.Length()));
             g.PositionTolerance = Math.Max(g.Radius * 1e-8, coordinateScale * 3.552713678800501e-15);
@@ -74,16 +79,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers
             if (!Near(a.Length(), g.Radius, g.PositionTolerance) || !Near(b.Length(), g.Radius, g.PositionTolerance))
                 throw new ArithmeticException("圆心至端点的半径不一致。");
             Vector u = a.Unit(), v = b.Unit();
-            if (Math.Abs(u.Dot(v)) > 1e-9) throw new ArithmeticException("弧线端点不是直角。");
+            if (Math.Abs(u.Dot(v) - Math.Cos(g.TurnAngleRadians)) > 1e-9)
+                throw new ArithmeticException("弧线端点与转向角不一致。");
             g.Axis = u.Cross(v).Unit();
             g.StartTangent = g.Axis.Cross(u).Unit();
             g.EndTangent = g.Axis.Cross(v).Unit();
             g.Mid = g.Center + (u + v).Unit() * g.Radius;
             if (!Near((g.Mid - g.Center).Length(), g.Radius, g.PositionTolerance) ||
-                !Near(g.ArcLength, g.Radius * (Math.PI / 2), g.PositionTolerance))
+                !Near(g.ArcLength, g.Radius * g.TurnAngleRadians, g.PositionTolerance))
                 throw new ArithmeticException("圆弧中点或弧长精度不足。");
             // 使用壁厚乘半径和，避免直接相减两个相近的平方。
-            g.Volume = (g.Radius * g.Wall) * (g.Outer + g.Inner) * (Math.PI * Math.PI / 2);
+            g.Volume = (g.Radius * g.Wall) * (g.Outer + g.Inner) * (Math.PI * g.TurnAngleRadians);
             PipePoint3D.RequireFinite(g.Volume, "理论体积");
             if (g.Volume <= 0 || g.Volume * 1e-5 <= 0)
                 throw new ArithmeticException("理论体积溢出或下溢。");

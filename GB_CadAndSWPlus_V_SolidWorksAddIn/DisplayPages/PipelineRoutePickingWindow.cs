@@ -126,7 +126,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _resume.IsEnabled = false;
             _properties = AddButton(actions, "管道属性", (sender, args) => OpenProperties());
             _properties.IsEnabled = false;
-            _elbowGeometry = AddButton(actions, "三点直角试算", (sender, args) => CalculateElbowGeometry());
+            _elbowGeometry = AddButton(actions, "三点弯头试算", (sender, args) => CalculateElbowGeometry());
             _elbowGeometry.IsEnabled = false;
             _testModel = AddButton(actions, "验证独立直管", (sender, args) => TestStraightModel(false));
             _testModel.IsEnabled = false;
@@ -505,7 +505,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         MessageBox.Show(this, "属性只保存在本次窗口中，未生成或更新模型，也未自动保存配置。\n" +
                             blockReason + (_completedRoute.Points.Count == 2 && !_insertionAttempted
                                 ? "\n如需专用测试装配体试验，可使用路线窗口的【已有单零件试验】或【已有双零件试验】。" : "") +
-                            (_completedRoute.Points.Count == 3 ? "\n可使用【三点直角试算】核验尺寸，或手动验证、保存独立弯头；不会自动插入装配体。" : "") +
+                            (_completedRoute.Points.Count == 3 ? "\n可使用【三点弯头试算】核验尺寸，或手动验证、保存独立弯头；不会自动插入装配体。" : "") +
                             "\n关闭路线窗口后本次属性将丢失。",
                             "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
@@ -544,21 +544,34 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             if (_loadingProperties || _completedRoute == null || _completedRoute.Points.Count != 3)
             {
-                SolidWorksFileLogger.Warning("三点直角路线试算未启动：路线状态或点数不符合要求。");
-                MessageBox.Show(this, "请先完成恰好三个坐标的路线，再进行直角几何试算。",
-                    "三点直角路线试算", MessageBoxButton.OK, MessageBoxImage.Warning);
+                SolidWorksFileLogger.Warning("三点弯头路线试算未启动：路线状态或点数不符合要求。");
+                MessageBox.Show(this, "请先完成恰好三个坐标的路线，再进行弯头几何试算。",
+                    "三点弯头路线试算", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
             try
             {
-                SolidWorksFileLogger.Info("打开三点直角路线几何试算；不会生成模型或保存文件。");
+                SolidWorksFileLogger.Info("打开三点弯头路线几何试算；不会生成模型或保存文件。");
                 new PipelineElbowGeometryWindow(_completedRoute, _confirmedModelAttributes,
-                    _application, _document, new WindowInteropHelper(this).Owner) { Owner = this }.ShowDialog();
+                    _application, _document, new WindowInteropHelper(this).Owner, ApplyAdjustedRoute) { Owner = this }.ShowDialog();
             }
             catch (Exception ex) when (IsOperationException(ex))
             {
-                ReportError("打开三点直角路线试算失败", ex);
+                ReportError("打开三点弯头路线试算失败", ex);
             }
+        }
+
+        private void ApplyAdjustedRoute(PipeRoute route)
+        {
+            if (_windowClosed || _completedRoute == null || route.Points.Count != 3)
+                throw new InvalidOperationException("原路线已关闭或无法更新，请重新选点。");
+            _completedRoute = route;
+            var text = new StringBuilder();
+            for (int i = 0; i < route.Points.Count; i++)
+                text.Append(i + 1).Append(". ").AppendLine(Describe(route.Points[i]));
+            _points.Text = text.ToString();
+            _hasDisplayedPoints = true;
+            _status.Text = "已按用户确认更新三点路线；临时选点预览已结束，请在试算窗口重新核验。";
         }
 
         private string? AutomaticInsertionBlockReason()
