@@ -79,7 +79,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、验证或保存三个独立零件，也可单独保存弯头。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、保存零件或进行新建空装配体试验。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -505,7 +505,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         MessageBox.Show(this, "属性只保存在本次窗口中，未生成或更新模型，也未自动保存配置。\n" +
                             blockReason + (_completedRoute.Points.Count == 2 && !_insertionAttempted
                                 ? "\n如需专用测试装配体试验，可使用路线窗口的【已有单零件试验】或【已有双零件试验】。" : "") +
-                            (_completedRoute.Points.Count == 3 ? "\n可使用【三点弯头试算】核验尺寸、验证或保存三个独立零件，也可单独保存弯头；不会自动插入装配体。" : "") +
+                            (_completedRoute.Points.Count == 3 ? "\n可使用【三点弯头试算】核验尺寸、验证或保存独立零件，或单独选择新建空装配体试验。" : "") +
                             "\n关闭路线窗口后本次属性将丢失。",
                             "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                     }

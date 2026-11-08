@@ -11,6 +11,27 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 {
+    internal sealed class PipelineThreePieceSavedResult
+    {
+        internal PipelineThreePieceSavedResult(PipelineStraightModelResult inlet, PipelineElbowModelResult elbow,
+            PipelineStraightModelResult outlet, string[] paths, string[] configurations)
+        {
+            Inlet = inlet; Elbow = elbow; Outlet = outlet;
+            InletPath = paths[0]; ElbowPath = paths[1]; OutletPath = paths[2];
+            InletConfiguration = configurations[0]; ElbowConfiguration = configurations[1]; OutletConfiguration = configurations[2];
+        }
+
+        public PipelineStraightModelResult Inlet { get; }
+        public PipelineElbowModelResult Elbow { get; }
+        public PipelineStraightModelResult Outlet { get; }
+        public string InletPath { get; }
+        public string ElbowPath { get; }
+        public string OutletPath { get; }
+        public string InletConfiguration { get; }
+        public string ElbowConfiguration { get; }
+        public string OutletConfiguration { get; }
+    }
+
     internal sealed class PipelineThreePieceSaveTrialException : Exception
     {
         internal PipelineThreePieceSaveTrialException(string message, Exception inner) : base(message, inner) { }
@@ -51,7 +72,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
         }
 
-        internal static void BuildAndSave(SldWorks app, ModelDoc2 source, IntPtr window,
+        internal static PipelineThreePieceSavedResult BuildAndSave(SldWorks app, ModelDoc2 source, IntPtr window,
             string template, PipelineThreePiecePlan plan, string[] paths)
         {
             string stage = "输入和线程预检";
@@ -60,6 +81,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             var verified = new bool[3];
             var documents = new List<ModelDoc2>();
             var configurations = new List<string>();
+            PipelineStraightModelResult? inletResult = null, outletResult = null;
+            PipelineElbowModelResult? elbowResult = null;
             bool started = false;
             int current = -1;
             try
@@ -154,9 +177,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     CheckState(app, source, window, documents, configurations, targets, document, -1);
                     RememberTitle(document, titles, i);
                     verified[i] = true;
+                    if (i == 0) inletResult = straight;
+                    else if (i == 1) elbowResult = elbow;
+                    else outletResult = straight;
                     SolidWorksFileLogger.Info(Labels[i] + "完整保存复验通过；标题=" + titles[i] + "；目标路径=" + targets[i] + "。");
                 }
+                stage = "记录三个实际保存路径";
+                string[] actualPaths = { documents[0].GetPathName(), documents[1].GetPathName(), documents[2].GetPathName() };
+                CheckState(app, source, window, documents, configurations, targets, documents[2], -1);
+                for (int i = 0; i < 3; i++)
+                    if (!PathsEqual(actualPaths[i], targets[i])) throw new InvalidOperationException("实际保存路径已改变。");
                 SolidWorksFileLogger.Info("三个独立零件逐件保存复验完成；未重开文件，未同时复验三件几何，也未装配、写属性数据库或关闭文档。");
+                return new PipelineThreePieceSavedResult(inletResult!, elbowResult!, outletResult!,
+                    actualPaths, configurations.ToArray());
             }
             catch (Exception ex) when (Expected(ex))
             {

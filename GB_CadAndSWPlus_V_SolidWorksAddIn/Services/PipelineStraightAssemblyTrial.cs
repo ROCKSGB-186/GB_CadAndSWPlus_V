@@ -302,7 +302,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
         }
 
-        private static double[] BoundingBoxCenter(PartDoc part)
+        internal static double[] BoundingBoxCenter(PartDoc part)
         {
             var box = part.GetPartBox(false) as double[];
             if (box == null || box.Length != 6)
@@ -346,7 +346,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private static bool Same(SldWorks application, object first, object second) =>
             application.IsSame(first, second) == (int)swObjectEquality.swObjectSame;
 
-        private static bool IsIdentity(MathUtility math, MathTransform transform)
+        internal static bool IsIdentity(MathUtility math, MathTransform transform)
         {
             var values = transform?.ArrayData as Array;
             if (values == null || values.Rank != 1 || values.Length != 16)
@@ -379,7 +379,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return true;
         }
 
-        private static void RequireIdentity(MathUtility math, MathTransform transform)
+        internal static void RequireIdentity(MathUtility math, MathTransform transform)
         {
             if (!IsIdentity(math, transform))
                 throw new InvalidOperationException("组件位置不是装配体根坐标单位变换。");

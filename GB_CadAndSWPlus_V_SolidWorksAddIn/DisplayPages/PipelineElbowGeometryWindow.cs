@@ -35,6 +35,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _saveElbow;
         private readonly Button _testThreePieces;
         private readonly Button _saveThreePieces;
+        private readonly Button _assembleThreePieces;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -95,6 +96,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _testThreePieces.Click += (sender, args) => RunThreePieceTrial();
             _saveThreePieces = new Button { Content = "保存三个独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             _saveThreePieces.Click += (sender, args) => RunThreePieceSaveTrial();
+            _assembleThreePieces = new Button { Content = "三零件空装配体试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _assembleThreePieces.Click += (sender, args) => RunThreePieceAssemblyTrial();
             var close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             close.Click += (sender, args) => Close();
             buttons.Children.Add(_calculate);
@@ -103,6 +106,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             buttons.Children.Add(_saveElbow);
             buttons.Children.Add(_testThreePieces);
             buttons.Children.Add(_saveThreePieces);
+            buttons.Children.Add(_assembleThreePieces);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
@@ -514,20 +518,12 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     SolidWorksFileLogger.Info("用户取消选择三零件保存模板，未创建零件。");
                     return;
                 }
-                string folder;
-                using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+                string? folder = ChooseEmptyTestFolder();
+                if (folder == null)
                 {
-                    Description = "请选择专用的空测试文件夹；仅支持本机固定 NTFS 磁盘。",
-                    ShowNewFolderButton = true
-                })
-                {
-                    if (dialog.ShowDialog(new FormsWindowOwner(new WindowInteropHelper(this).Handle)) != System.Windows.Forms.DialogResult.OK)
-                    {
-                        _result.Text = "已取消选择测试文件夹，未创建或保存三零件。";
-                        SolidWorksFileLogger.Info("用户取消选择三零件保存文件夹，未创建零件。");
-                        return;
-                    }
-                    folder = dialog.SelectedPath;
+                    _result.Text = "已取消选择测试文件夹，未创建或保存三零件。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件保存文件夹，未创建零件。");
+                    return;
                 }
                 string[] paths = PipelineThreePieceSaveTrial.PreparePaths(_application, folder);
                 if (MessageBox.Show(this,
@@ -573,6 +569,132 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
         }
 
+        private void RunThreePieceAssemblyTrial()
+        {
+            if (_building)
+            {
+                SolidWorksFileLogger.Warning("建模试验正在进行，拒绝重复启动三零件装配试验。");
+                return;
+            }
+            if (!TryCreatePlan(out PipelineThreePiecePlan? plan)) return;
+            string[]? paths = null;
+            bool saved = false;
+            SetTrialRunning(true);
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                string? partTemplate = ChoosePartTemplate("三零件装配试验");
+                if (partTemplate == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建或保存模型。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件装配试验零件模板，未创建模型。");
+                    return;
+                }
+                string? assemblyTemplate = ChooseAssemblyTemplate();
+                if (assemblyTemplate == null)
+                {
+                    _result.Text = "已取消选择装配体模板，未创建或保存模型。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件装配试验装配体模板，未创建模型。");
+                    return;
+                }
+                string? folder = ChooseEmptyTestFolder();
+                if (folder == null)
+                {
+                    _result.Text = "已取消选择测试文件夹，未创建或保存模型。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件装配试验文件夹，未创建模型。");
+                    return;
+                }
+                paths = PipelineThreePieceSaveTrial.PreparePaths(_application, folder);
+                if (MessageBox.Show(this,
+                    "将先依次新建并保存三个独立零件：\n" +
+                    "第一根直管：" + paths[0] + "\n弯头：" + paths[1] + "\n第二根直管：" + paths[2] +
+                    "\n然后新建一个未保存的空测试装配体，逐件按路线坐标插入；必要时调整本次新组件的位置，不会修改当前源装配体。\n" +
+                    "仅限专用空测试文件夹，不覆盖已有文件；试验期间请勿由其他程序或人员访问文件或修改文档。\n" +
+                    "不自动保存装配体、不主动调用重建或添加配合，不写属性或数据库。组件可能固定或浮动，未进行连接或干涉校验。\n" +
+                    "失败可能留下部分文件、零件、装配体或组件，不自动删除、关闭或回滚；请勿用于正式工程。是否继续？",
+                    "三零件空装配体试验", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes)
+                {
+                    _result.Text = "已取消三零件装配试验，未创建模型或文件。";
+                    SolidWorksFileLogger.Info("用户取消三零件装配试验，未创建模型或文件。");
+                    return;
+                }
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                PipelineThreePieceSavedResult models = PipelineThreePieceSaveTrial.BuildAndSave(
+                    _application, _sourceDocument, _mainWindow, partTemplate, plan!, paths);
+                saved = true;
+                PipelineThreePieceAssemblyTrialResult assembly = PipelineThreePieceAssemblyTrial.Build(
+                    _application, _sourceDocument, _mainWindow, assemblyTemplate, models);
+                _result.Text = "三零件已插入新建未保存的测试装配体；未主动重建、自动保存或添加配合，未校验连接或干涉。";
+                MessageBox.Show(this, _result.Text + "\n装配体：" + assembly.AssemblyTitle +
+                    "\n第一根直管：" + paths[0] + "\n弯头：" + paths[1] + "\n第二根直管：" + paths[2] +
+                    "\n组件可能固定或浮动，位置可能因后续操作改变；未写入属性或数据库。请检查测试装配体。",
+                    "三零件空装配体试验", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (PipelineThreePieceSaveTrialException ex)
+            {
+                SolidWorksFileLogger.Error("三零件装配试验的保存阶段未完成：" + ex);
+                _result.Text = "三零件装配试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "三零件空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (PipelineThreePieceAssemblyTrialException ex)
+            {
+                SolidWorksFileLogger.Error("三零件装配试验未完成：" + ex);
+                _result.Text = "三零件装配试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "三零件空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("三零件装配试验未启动或未完成：" + ex);
+                _result.Text = "三零件装配试验未启动或未完成：" + ex.Message;
+                string state = saved && paths != null
+                    ? "\n三个零件此前已保存到：\n" + string.Join("\n", paths)
+                    : "\n请检查是否有文件或文档残留。";
+                MessageBox.Show(this, _result.Text + state + "\n未自动删除、关闭或回滚。",
+                    "三零件空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                SetTrialRunning(false);
+            }
+        }
+
+        private string? ChooseEmptyTestFolder()
+        {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "请选择专用的空测试文件夹；仅支持本机固定 NTFS 磁盘。",
+                ShowNewFolderButton = true
+            })
+                return dialog.ShowDialog(new FormsWindowOwner(new WindowInteropHelper(this).Handle)) ==
+                    System.Windows.Forms.DialogResult.OK ? dialog.SelectedPath : null;
+        }
+
+        private string? ChooseAssemblyTemplate()
+        {
+            string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplateAssembly);
+            if (!string.IsNullOrWhiteSpace(template) && PipelineStraightModelBuilder.IsFullyQualifiedPath(template) &&
+                File.Exists(template) && string.Equals(Path.GetExtension(template), ".asmdot", StringComparison.OrdinalIgnoreCase))
+                return template;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择用于三零件装配试验的空装配体模板",
+                Filter = "SolidWorks 装配体模板 (*.asmdot)|*.asmdot",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            if (dialog.ShowDialog(this) != true) return null;
+            if (!PipelineStraightModelBuilder.IsFullyQualifiedPath(dialog.FileName) || !File.Exists(dialog.FileName) ||
+                !string.Equals(Path.GetExtension(dialog.FileName), ".asmdot", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("必须选择存在的装配体模板 .asmdot 绝对路径。");
+            return dialog.FileName;
+        }
+
         private sealed class FormsWindowOwner : System.Windows.Forms.IWin32Window
         {
             internal FormsWindowOwner(IntPtr handle) { Handle = handle; }
@@ -605,6 +727,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveElbow.IsEnabled = !running;
             _testThreePieces.IsEnabled = !running;
             _saveThreePieces.IsEnabled = !running;
+            _assembleThreePieces.IsEnabled = !running;
             _adjustAngle.IsEnabled = !running;
             _targetAngle.IsEnabled = !running;
         }
