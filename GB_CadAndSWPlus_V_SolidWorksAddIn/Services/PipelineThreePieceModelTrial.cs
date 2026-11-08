@@ -172,7 +172,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 throw new InvalidOperationException("活动文档不是预期的源文档或上一步零件。");
         }
 
-        private static void RequireOpen(SldWorks app, List<object> open, ModelDoc2 document)
+        internal static void RequireOpen(SldWorks app, List<object> open, ModelDoc2 document)
         {
             int matches = 0;
             foreach (object candidate in open)
@@ -185,7 +185,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             if (matches != 1) throw new InvalidOperationException("预期文档未打开或身份不唯一。");
         }
 
-        private static void RequireDifferent(SldWorks app, object first, object second)
+        internal static void RequireDifferent(SldWorks app, object first, object second)
         {
             if (app.IsSame(first, second) != (int)swObjectEquality.swObjectNotSame)
                 throw new InvalidOperationException("无法确认零件与源文档及其他零件身份不同。");

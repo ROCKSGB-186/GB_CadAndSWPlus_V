@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
@@ -33,6 +34,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _testElbow;
         private readonly Button _saveElbow;
         private readonly Button _testThreePieces;
+        private readonly Button _saveThreePieces;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -91,6 +93,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveElbow.Click += (sender, args) => RunElbowTrial(true);
             _testThreePieces = new Button { Content = "验证三个独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             _testThreePieces.Click += (sender, args) => RunThreePieceTrial();
+            _saveThreePieces = new Button { Content = "保存三个独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _saveThreePieces.Click += (sender, args) => RunThreePieceSaveTrial();
             var close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             close.Click += (sender, args) => Close();
             buttons.Children.Add(_calculate);
@@ -98,6 +102,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             buttons.Children.Add(_testElbow);
             buttons.Children.Add(_saveElbow);
             buttons.Children.Add(_testThreePieces);
+            buttons.Children.Add(_saveThreePieces);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
@@ -489,6 +494,91 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
         }
 
+        private void RunThreePieceSaveTrial()
+        {
+            if (_building)
+            {
+                SolidWorksFileLogger.Warning("建模试验正在进行，拒绝重复启动三零件保存。");
+                return;
+            }
+            if (!TryCreatePlan(out PipelineThreePiecePlan? plan)) return;
+            SetTrialRunning(true);
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                string? template = ChoosePartTemplate("三零件保存");
+                if (template == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建或保存三零件。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件保存模板，未创建零件。");
+                    return;
+                }
+                string folder;
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+                {
+                    Description = "请选择专用的空测试文件夹；仅支持本机固定 NTFS 磁盘。",
+                    ShowNewFolderButton = true
+                })
+                {
+                    if (dialog.ShowDialog(new FormsWindowOwner(new WindowInteropHelper(this).Handle)) != System.Windows.Forms.DialogResult.OK)
+                    {
+                        _result.Text = "已取消选择测试文件夹，未创建或保存三零件。";
+                        SolidWorksFileLogger.Info("用户取消选择三零件保存文件夹，未创建零件。");
+                        return;
+                    }
+                    folder = dialog.SelectedPath;
+                }
+                string[] paths = PipelineThreePieceSaveTrial.PreparePaths(_application, folder);
+                if (MessageBox.Show(this,
+                    "将依次新建并保存两个直管和一个弯头到以下新文件：\n" +
+                    "第一根直管：" + paths[0] + "\n弯头：" + paths[1] + "\n第二根直管：" + paths[2] +
+                    "\n仅限专用空测试文件夹，不覆盖已有文件；保存期间请勿由其他程序或人员访问文件或目录。\n" +
+                    "逐件创建、保存并复验当前打开的零件，不重新打开文件，也不保证三件最终同时几何一致。\n" +
+                    "不会插入装配体、写属性或数据库。中途失败可能留下已保存、空或不完整文件及未保存零件；不会自动删除、关闭或回滚。是否继续？",
+                    "保存三个独立零件试验", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes)
+                {
+                    _result.Text = "已取消三零件保存，未创建模型或文件。";
+                    SolidWorksFileLogger.Info("用户取消三零件保存试验，未创建模型或文件。");
+                    return;
+                }
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                PipelineThreePieceSaveTrial.BuildAndSave(_application, _sourceDocument, _mainWindow, template, plan!, paths);
+                _result.Text = "三个独立零件已逐件保存并复验当前打开文档；未重新打开文件，未最终同时复验几何，也未装配。";
+                MessageBox.Show(this, _result.Text + "\n第一根直管：" + paths[0] + "\n弯头：" + paths[1] +
+                    "\n第二根直管：" + paths[2] + "\n未写入属性或数据库；请检查文件和零件。",
+                    "保存三个独立零件试验", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (PipelineThreePieceSaveTrialException ex)
+            {
+                SolidWorksFileLogger.Error("三零件保存试验未完成：" + ex);
+                _result.Text = "三零件保存试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "三零件保存试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("三零件保存试验未启动或未完成：" + ex);
+                _result.Text = "三零件保存试验未启动或未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text + "\n请检查文件和文档；未自动删除、关闭或回滚。",
+                    "三零件保存试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                SetTrialRunning(false);
+            }
+        }
+
+        private sealed class FormsWindowOwner : System.Windows.Forms.IWin32Window
+        {
+            internal FormsWindowOwner(IntPtr handle) { Handle = handle; }
+            public IntPtr Handle { get; }
+        }
+
         private string? ChoosePartTemplate(string purpose)
         {
             string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
@@ -514,6 +604,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _testElbow.IsEnabled = !running;
             _saveElbow.IsEnabled = !running;
             _testThreePieces.IsEnabled = !running;
+            _saveThreePieces.IsEnabled = !running;
             _adjustAngle.IsEnabled = !running;
             _targetAngle.IsEnabled = !running;
         }
