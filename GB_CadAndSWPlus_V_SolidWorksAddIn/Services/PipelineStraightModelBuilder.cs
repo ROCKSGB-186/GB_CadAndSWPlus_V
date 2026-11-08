@@ -226,7 +226,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 throw new InvalidOperationException("必须在 SolidWorks 主窗口所属进程的 UI 线程调用。");
         }
 
-        private static void ValidateInput(string template, PipeRoute route, double diameter, double wall)
+        internal static void ValidateInput(string template, PipeRoute route, double diameter, double wall)
         {
             if (string.IsNullOrWhiteSpace(template) || !IsFullyQualifiedPath(template) ||
                 !string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase) ||

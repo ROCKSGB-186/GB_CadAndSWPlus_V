@@ -28,8 +28,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly TextBox _result;
         private readonly ComboBox _targetAngle;
         private readonly Button _adjustAngle;
+        private readonly Button _calculate;
+        private readonly Button _calculatePieces;
         private readonly Button _testElbow;
         private readonly Button _saveElbow;
+        private readonly Button _testThreePieces;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -43,8 +46,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (mainWindow == IntPtr.Zero) throw new ArgumentException("SolidWorks 主窗口句柄无效。", nameof(mainWindow));
             _mainWindow = mainWindow;
             Title = "三点弯头路线几何试算";
-            Width = 560;
-            Height = 470;
+            Width = 700;
+            Height = 540;
             MinWidth = 480;
             MinHeight = 380;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -54,7 +57,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "试运行支持 45°、90°、135° 转向角；其他角度可选择调整方案。独立弯头不插入装配体或写入属性；结果不代表标准件选型、规范校核或碰撞检查。",
+                Text = "试运行支持 45°、90°、135° 转向角；其他角度可选择调整方案。独立零件不自动插入装配体或写入属性；结果不代表标准件选型、规范校核或碰撞检查。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -77,21 +80,24 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             DockPanel.SetDock(heading, Dock.Top);
             root.Children.Add(heading);
 
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var calculate = new Button { Content = "试算", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
-            calculate.Click += Calculate;
-            var pieces = new Button { Content = "三零件尺寸核验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
-            pieces.Click += CalculatePieces;
+            var buttons = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
+            _calculate = new Button { Content = "试算", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _calculate.Click += Calculate;
+            _calculatePieces = new Button { Content = "三零件尺寸核验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _calculatePieces.Click += CalculatePieces;
             _testElbow = new Button { Content = "验证独立弯头", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             _testElbow.Click += (sender, args) => RunElbowTrial(false);
             _saveElbow = new Button { Content = "保存独立弯头", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             _saveElbow.Click += (sender, args) => RunElbowTrial(true);
+            _testThreePieces = new Button { Content = "验证三个独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
+            _testThreePieces.Click += (sender, args) => RunThreePieceTrial();
             var close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             close.Click += (sender, args) => Close();
-            buttons.Children.Add(calculate);
-            buttons.Children.Add(pieces);
+            buttons.Children.Add(_calculate);
+            buttons.Children.Add(_calculatePieces);
             buttons.Children.Add(_testElbow);
             buttons.Children.Add(_saveElbow);
+            buttons.Children.Add(_testThreePieces);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
@@ -311,33 +317,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             PipelineElbowModelResult? model = null;
             string? destination = null;
             bool saved = false;
-            _building = true;
-            _testElbow.IsEnabled = false;
-            _saveElbow.IsEnabled = false;
-            _adjustAngle.IsEnabled = false;
-            _targetAngle.IsEnabled = false;
+            SetTrialRunning(true);
             try
             {
                 RequireSourceDocument();
                 PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
-                string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
-                if (string.IsNullOrWhiteSpace(template) || !File.Exists(template) ||
-                    !string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase))
+                string? template = ChoosePartTemplate("独立弯头验证");
+                if (template == null)
                 {
-                    var dialog = new Microsoft.Win32.OpenFileDialog
-                    {
-                        Title = "选择用于独立弯头验证的零件模板",
-                        Filter = "SolidWorks 零件模板 (*.prtdot)|*.prtdot",
-                        CheckFileExists = true,
-                        Multiselect = false
-                    };
-                    if (dialog.ShowDialog(this) != true)
-                    {
-                        _result.Text = "已取消选择零件模板，未创建弯头。";
-                        SolidWorksFileLogger.Info("用户取消选择弯头验证模板，未创建零件。");
-                        return;
-                    }
-                    template = dialog.FileName;
+                    _result.Text = "已取消选择零件模板，未创建弯头。";
+                    SolidWorksFileLogger.Info("用户取消选择弯头验证模板，未创建零件。");
+                    return;
                 }
                 if (saveModel)
                 {
@@ -431,12 +421,101 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
             finally
             {
-                _building = false;
-                _testElbow.IsEnabled = true;
-                _saveElbow.IsEnabled = true;
-                _adjustAngle.IsEnabled = true;
-                _targetAngle.IsEnabled = true;
+                SetTrialRunning(false);
             }
+        }
+
+        private void RunThreePieceTrial()
+        {
+            if (_building)
+            {
+                SolidWorksFileLogger.Warning("建模试验正在进行，拒绝重复启动三零件验证。");
+                return;
+            }
+            if (!TryCreatePlan(out PipelineThreePiecePlan? plan)) return;
+            SetTrialRunning(true);
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                string? template = ChoosePartTemplate("三零件验证");
+                if (template == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建三零件。";
+                    SolidWorksFileLogger.Info("用户取消选择三零件验证模板，未创建零件。");
+                    return;
+                }
+                if (MessageBox.Show(this,
+                    "将依次新建第一根直管、独立弯头和第二根直管，共三个未保存的独立测试零件。\n" +
+                    "每个零件按同一组路线坐标和尺寸在创建时分别验证，不会在最后对三个零件重新复验几何；请勿在试验期间修改文档。\n" +
+                    "不会保存或插入装配体，不写入属性或数据库，不能在此阶段确认装配连接或干涉。\n" +
+                    "失败时可能留下部分或不完整的未保存零件，不会自动关闭或回滚；请勿用于正式工程。是否继续？",
+                    "三个独立零件验证", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) != MessageBoxResult.Yes)
+                {
+                    _result.Text = "已取消三零件验证，未创建模型。";
+                    SolidWorksFileLogger.Info("用户取消三零件验证，未创建零件。");
+                    return;
+                }
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                PipelineThreePieceModelTrialResult models = PipelineThreePieceModelTrial.Build(
+                    _application, _sourceDocument, _mainWindow, template, plan!);
+                _result.Text = "三个独立零件已分别生成并在创建时校验，未对三个零件做最终几何复验；均未保存，尚未插入装配体或检查连接、干涉。";
+                MessageBox.Show(this, _result.Text + "\n第一根直管：" + models.Inlet.Title +
+                    "\n弯头：" + models.Elbow.Title + "\n第二根直管：" + models.Outlet.Title +
+                    "\n未写入属性或数据库。请逐个检查测试零件。",
+                    "三个独立零件验证", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (PipelineThreePieceModelTrialException ex)
+            {
+                SolidWorksFileLogger.Error("三零件验证未完成：" + ex);
+                _result.Text = "三零件验证未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "三个独立零件验证失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("三零件验证未完成：" + ex);
+                _result.Text = "三零件验证未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text + "\n请检查是否有新文档残留；未自动关闭或回滚。",
+                    "三个独立零件验证失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                SetTrialRunning(false);
+            }
+        }
+
+        private string? ChoosePartTemplate(string purpose)
+        {
+            string template = _application.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
+            if (!string.IsNullOrWhiteSpace(template) && File.Exists(template) &&
+                string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase))
+                return template;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择用于" + purpose + "的零件模板",
+                Filter = "SolidWorks 零件模板 (*.prtdot)|*.prtdot",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+        }
+
+        private void SetTrialRunning(bool running)
+        {
+            _building = running;
+            _radius.IsEnabled = !running;
+            _calculate.IsEnabled = !running;
+            _calculatePieces.IsEnabled = !running;
+            _testElbow.IsEnabled = !running;
+            _saveElbow.IsEnabled = !running;
+            _testThreePieces.IsEnabled = !running;
+            _adjustAngle.IsEnabled = !running;
+            _targetAngle.IsEnabled = !running;
         }
 
         private void RequireSourceDocument()
@@ -450,8 +529,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         {
             if (!_building) return;
             args.Cancel = true;
-            _result.Text = "独立弯头验证尚未结束，请等待完成后再关闭窗口。";
-            SolidWorksFileLogger.Warning("独立弯头验证尚未结束，暂不能关闭试算窗口。");
+            _result.Text = "建模试验尚未结束，请等待完成后再关闭窗口。";
+            SolidWorksFileLogger.Warning("建模试验尚未结束，暂不能关闭试算窗口。");
         }
 
         private bool TryReadRadius(out double radius)
