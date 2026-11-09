@@ -53,47 +53,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 if (app == null) throw new ArgumentNullException(nameof(app));
                 if (source == null) throw new ArgumentNullException(nameof(source));
                 PipelineStraightModelBuilder.RequireUiThread(window);
-                if (string.IsNullOrWhiteSpace(template) ||
-                    !PipelineStraightModelBuilder.IsFullyQualifiedPath(template) ||
-                    template.StartsWith(@"\\?\", StringComparison.Ordinal) ||
-                    template.StartsWith(@"\\.\", StringComparison.Ordinal))
-                    throw new ArgumentException("必须指定可靠的零件模板绝对路径。", nameof(template));
-                template = Path.GetFullPath(template);
-                if (!string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase) ||
-                    !File.Exists(template))
-                    throw new ArgumentException("必须指定存在的零件模板 .prtdot 文件。", nameof(template));
-                if (plan == null) throw new ArgumentNullException(nameof(plan));
-                if (plan.ApproximatePointNumbers.Count != 0)
-                    throw new InvalidOperationException("近似共线仅用于理论预览，不能建模；原路线点号=" +
-                        string.Join("、", plan.ApproximatePointNumbers) + "。");
-                if (plan.Straights.Count == 0 || plan.ElbowPlans.Count != plan.Straights.Count - 1 ||
-                    plan.Elbows.Count != plan.ElbowPlans.Count || plan.ElbowPointNumbers.Count != plan.ElbowPlans.Count)
-                    throw new InvalidOperationException("多段方案的直管和弯头数量不一致。");
-
-                // 所有模型均先完成与各 builder 相同的毫米及米单位预检，避免可预见的部分创建。
-                for (int i = 0; i < plan.Straights.Count; i++)
+                template = ValidatePlan(template, plan, step =>
                 {
-                    stage = "预检直管 " + (i + 1);
+                    stage = step;
                     SolidWorksFileLogger.Info("编号=" + operation + "；阶段=" + stage + "。");
-                    PipelineStraightModelBuilder.ValidateInput(template, plan.Straights[i],
-                        plan.OutsideDiameterMm, plan.WallThicknessMm);
-                    ValidateStraightVerificationPrecision(plan.Straights[i], plan.OutsideDiameterMm,
-                        plan.WallThicknessMm);
-                }
-                for (int i = 0; i < plan.ElbowPlans.Count; i++)
-                {
-                    stage = "预检弯头 " + (i + 1) + "（原路线点 " + plan.ElbowPointNumbers[i] + "）";
-                    SolidWorksFileLogger.Info("编号=" + operation + "；阶段=" + stage + "。");
-                    PipelineThreePiecePlan elbow = plan.ElbowPlans[i];
-                    PipelineElbowBuildGeometry.Create(elbow);
-                    if (!ReferenceEquals(elbow.Elbow, plan.Elbows[i]) ||
-                        elbow.OutsideDiameterMm != plan.OutsideDiameterMm ||
-                        elbow.WallThicknessMm != plan.WallThicknessMm ||
-                        elbow.InsideDiameterMm != plan.InsideDiameterMm ||
-                        plan.Straights[i].Points[1] != elbow.Elbow.EntryTangent ||
-                        plan.Straights[i + 1].Points[0] != elbow.Elbow.ExitTangent)
-                        throw new InvalidOperationException("弯头与相邻直管或方案尺寸不一致。");
-                }
+                });
 
                 stage = "检查源文档和启动条件";
                 // 源文档允许本来已保存；记录其原状态，之后不允许身份、路径或标题发生变化。
@@ -150,6 +114,49 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     "；可能存在未知残留，未自动保存、关闭或回滚。");
                 throw new PipelineMultiPieceModelTrialException(stage, titles, ex);
             }
+        }
+
+        // 保存试验与未保存试运行共用全部几何预检。
+        internal static string ValidatePlan(string template, PipelineMultiSegmentPlan plan, Action<string> reportStage)
+        {
+            if (string.IsNullOrWhiteSpace(template) ||
+                !PipelineStraightModelBuilder.IsFullyQualifiedPath(template) ||
+                template.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+                template.StartsWith(@"\\.\", StringComparison.Ordinal))
+                throw new ArgumentException("必须指定可靠的零件模板绝对路径。", nameof(template));
+            template = Path.GetFullPath(template);
+            if (!string.Equals(Path.GetExtension(template), ".prtdot", StringComparison.OrdinalIgnoreCase) ||
+                !File.Exists(template))
+                throw new ArgumentException("必须指定存在的零件模板 .prtdot 文件。", nameof(template));
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            if (plan.ApproximatePointNumbers.Count != 0)
+                throw new InvalidOperationException("近似共线仅用于理论预览，不能建模；原路线点号=" +
+                    string.Join("、", plan.ApproximatePointNumbers) + "。");
+            if (plan.Straights.Count == 0 || plan.ElbowPlans.Count != plan.Straights.Count - 1 ||
+                plan.Elbows.Count != plan.ElbowPlans.Count || plan.ElbowPointNumbers.Count != plan.ElbowPlans.Count)
+                throw new InvalidOperationException("多段方案的直管和弯头数量不一致。");
+            for (int i = 0; i < plan.Straights.Count; i++)
+            {
+                reportStage("预检直管 " + (i + 1));
+                PipelineStraightModelBuilder.ValidateInput(template, plan.Straights[i],
+                    plan.OutsideDiameterMm, plan.WallThicknessMm);
+                ValidateStraightVerificationPrecision(plan.Straights[i], plan.OutsideDiameterMm,
+                    plan.WallThicknessMm);
+            }
+            for (int i = 0; i < plan.ElbowPlans.Count; i++)
+            {
+                reportStage("预检弯头 " + (i + 1) + "（原路线点 " + plan.ElbowPointNumbers[i] + "）");
+                PipelineThreePiecePlan elbow = plan.ElbowPlans[i];
+                PipelineElbowBuildGeometry.Create(elbow);
+                if (!ReferenceEquals(elbow.Elbow, plan.Elbows[i]) ||
+                    elbow.OutsideDiameterMm != plan.OutsideDiameterMm ||
+                    elbow.WallThicknessMm != plan.WallThicknessMm ||
+                    elbow.InsideDiameterMm != plan.InsideDiameterMm ||
+                    plan.Straights[i].Points[1] != elbow.Elbow.EntryTangent ||
+                    plan.Straights[i + 1].Points[0] != elbow.Elbow.ExitTangent)
+                    throw new InvalidOperationException("弯头与相邻直管或方案尺寸不一致。");
+            }
+            return template;
         }
 
         private static void AddTitle(List<string> titles, string? title)
@@ -226,7 +233,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             foreach (object document in open) Remember(observed, document);
         }
 
-        private static void Remember(List<object> observed, object document)
+        internal static void Remember(List<object> observed, object document)
         {
             // 仅去除相同引用；不同 COM 包装即使可能指向同一对象也应保留并逐一比较。
             foreach (object previous in observed)
@@ -234,7 +241,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             observed.Add(document);
         }
 
-        private static void VerifyNewDocument(SldWorks app, IntPtr window,
+        internal static void VerifyNewDocument(SldWorks app, IntPtr window,
             List<object> observed, IReadOnlyList<object> existing, ModelDoc2 document)
         {
             PipelineStraightModelBuilder.RequireUiThread(window);

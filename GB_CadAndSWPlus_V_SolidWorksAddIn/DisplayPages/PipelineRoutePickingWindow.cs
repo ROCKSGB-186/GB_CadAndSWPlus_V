@@ -80,7 +80,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、保存零件或进行新建空装配体试验；多点路线可试算或单独确认独立零件试验。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、保存零件或进行新建空装配体试验；多点路线可试算、验证或单独确认保存独立零件。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock

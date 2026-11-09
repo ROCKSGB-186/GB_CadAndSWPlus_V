@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Services;
@@ -14,7 +15,7 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 {
-    /// <summary>多点路线几何试算及独立未保存零件试验。</summary>
+    /// <summary>多点路线几何试算及独立零件试验。</summary>
     internal sealed class PipelineMultiSegmentGeometryWindow : Window
     {
         private readonly PipeRoute _route;
@@ -24,6 +25,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly TextBox _result;
         private readonly Button _calculate;
         private readonly Button _build;
+        private readonly Button _save;
         private readonly Button _close;
         private readonly SldWorks? _application;
         private readonly ModelDoc2? _sourceDocument;
@@ -44,6 +46,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             if (mainWindow == IntPtr.Zero) throw new ArgumentException("SolidWorks 主窗口句柄无效。", nameof(mainWindow));
             _mainWindow = mainWindow;
             _build.IsEnabled = true;
+            _save.IsEnabled = true;
         }
 
         internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -65,7 +68,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "几何试算不创建模型；独立零件试验需另行确认。统一使用本次确认的管径、壁厚和输入半径，支持 45°、90°、135° 转向及同向共线点；近似路线仅供预览，不支持建模。不检查整体自交、干涉或工程规范。",
+                Text = "几何试算不创建模型；独立零件验证或保存试验需另行确认。保存试验会新建零件，不会保存已打开的测试零件。统一使用本次确认的管径、壁厚和输入半径，近似路线仅供预览，不支持建模。不检查整体自交、干涉或工程规范。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -85,6 +88,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _build = new Button { Content = "验证多段独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _build.Click += (sender, args) => BuildPieces();
             buttons.Children.Add(_build);
+            _save = new Button { Content = "保存多段独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _save.Click += (sender, args) => SavePieces();
+            buttons.Children.Add(_save);
             _close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             _close.Click += (sender, args) => Close();
             buttons.Children.Add(_close);
@@ -273,6 +279,94 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             return dialog.ShowDialog(this) == true ? dialog.FileName : null;
         }
 
+        private void SavePieces()
+        {
+            if (_building || _application == null || _sourceDocument == null)
+            {
+                ShowError("试验正在进行或原路线文档不可用。");
+                return;
+            }
+            if (!TryCreatePlan(true, out PipelineMultiSegmentPlan? plan, out _)) return;
+            SetTrialRunning(true);
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                string? template = ChoosePartTemplate();
+                if (template == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建或保存零件。";
+                    SolidWorksFileLogger.Info("用户取消选择多段保存试验模板。");
+                    return;
+                }
+                string? folder = ChooseEmptyTestFolder();
+                if (folder == null)
+                {
+                    _result.Text = "已取消选择测试文件夹，未创建或保存零件。";
+                    SolidWorksFileLogger.Info("用户取消选择多段保存试验文件夹。");
+                    return;
+                }
+                using (PipelineMultiPieceSaveConfirmation confirmation =
+                    PipelineMultiPieceSaveTrial.PreparePaths(_application, _mainWindow, folder, plan!))
+                {
+                    IReadOnlyList<string> paths = confirmation.Paths;
+                    if (MessageBox.Show(this, "将按路线顺序重新新建并保存 " + paths.Count + " 个独立测试零件：\n" +
+                        string.Join("\n", paths) +
+                        "\n不会保存或修改之前已打开的测试零件。仅使用本机专用空测试文件夹；试验期间必须确保其他程序和人员不访问或更改文件及目录，程序无法完全阻止并发写入。\n" +
+                        "逐件创建、保存并复验当前打开的零件，不重新打开文件，也不保证最终同时几何一致。试验同步执行并反复校验文件，路线较长时可能耗时较长、界面暂时无响应。\n" +
+                        "不装配、不写属性或数据库，不检查连接或干涉。失败可能留下已保存、空或不完整文件及未保存零件；不会自动删除、关闭或回滚。是否继续？",
+                        "保存多段独立零件试验", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                        MessageBoxResult.No) != MessageBoxResult.Yes)
+                    {
+                        _result.Text = "已取消多段保存试验，未创建模型或保存零件文件。";
+                        SolidWorksFileLogger.Info("用户取消多段独立零件保存试验；未创建模型或保存零件文件。");
+                        return;
+                    }
+                    RequireSourceDocument();
+                    PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                    PipelineMultiPieceSaveTrial.BuildAndSave(_application, _sourceDocument, _mainWindow, template, plan!, confirmation);
+                    _result.Text = "多段独立零件已逐件保存并复验当前打开文档；未重新打开文件，未最终同时复验几何，也未装配或检查连接、干涉。";
+                    MessageBox.Show(this, _result.Text + "\n文件（按路线顺序）：\n" + string.Join("\n", paths) +
+                        "\n未写入属性或数据库；请检查文件和零件。", "保存多段独立零件试验",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (PipelineMultiPieceSaveTrialException ex)
+            {
+                SolidWorksFileLogger.Error("多段独立零件保存试验未完成：" + ex);
+                _result.Text = "多段独立零件保存试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "多段独立零件保存试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("多段独立零件保存试验未启动或未完成；异常类型=" + ex.GetType().Name + "。");
+                _result.Text = "多段独立零件保存试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text + "\n请检查是否有文件或文档残留；未自动删除、关闭或回滚。",
+                    "多段独立零件保存试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally { SetTrialRunning(false); }
+        }
+
+        private string? ChooseEmptyTestFolder()
+        {
+            using (var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "请选择专用的空测试文件夹；仅支持本机固定 NTFS 磁盘。",
+                ShowNewFolderButton = true
+            })
+                return dialog.ShowDialog(new FormsWindowOwner(new WindowInteropHelper(this).Handle)) ==
+                    System.Windows.Forms.DialogResult.OK ? dialog.SelectedPath : null;
+        }
+
+        private sealed class FormsWindowOwner : System.Windows.Forms.IWin32Window
+        {
+            internal FormsWindowOwner(IntPtr handle) { Handle = handle; }
+            public IntPtr Handle { get; }
+        }
+
         private void RequireSourceDocument()
         {
             var active = _application!.ActiveDoc as ModelDoc2;
@@ -286,6 +380,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _radius.IsEnabled = !running;
             _calculate.IsEnabled = !running;
             _build.IsEnabled = !running && _application != null && _sourceDocument != null;
+            _save.IsEnabled = !running && _application != null && _sourceDocument != null;
             _close.IsEnabled = !running;
         }
 
