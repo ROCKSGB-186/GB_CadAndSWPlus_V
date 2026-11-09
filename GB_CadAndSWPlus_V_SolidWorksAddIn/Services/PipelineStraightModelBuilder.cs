@@ -84,17 +84,22 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
                 // 保存创建前的文档身份，防止错误地在已有文档上建模。
                 stage = "记录已有文档";
+                SolidWorksFileLogger.Info("直管诊断：开始读取已有文档列表。");
                 List<object> existingDocuments = ReadComObjects(application.GetDocuments(), "已有文档列表");
+                SolidWorksFileLogger.Info("直管诊断：已有文档列表读取完成。");
                 stage = "新建未保存零件";
                 SolidWorksFileLogger.Info("开始新建独立未保存直管零件。");
                 newDocumentAttempted = true;
                 document = application.NewDocument(partTemplatePath, 0, 0, 0) as ModelDoc2;
+                SolidWorksFileLogger.Info("直管诊断：NewDocument 已返回；取得零件文档接口=" + (document != null) + "。");
                 if (document == null)
                     throw new InvalidOperationException("新建文档未返回零件对象，新文档可能残留。");
 
                 // 多段试验在任何文档写操作前，额外核对此前观察到的全部文档身份。
                 stage = "校验新文档身份";
+                SolidWorksFileLogger.Info("直管诊断：开始校验新文档身份。");
                 verifyNewDocument?.Invoke(document, existingDocuments);
+                SolidWorksFileLogger.Info("直管诊断：新文档身份回调已返回。");
                 stage = "新建未保存零件";
                 RequireActive(application, document);
                 foreach (object existing in existingDocuments)
@@ -134,9 +139,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 PipePoint3D start = route.Points[0];
                 PipePoint3D end = route.Points[1];
                 RequireActive(application, document);
+                SolidWorksFileLogger.Info("直管诊断：开始调用 CreateLine。");
                 SketchSegment segment = sketchManager.CreateLine(
                     start.X / 1000.0, start.Y / 1000.0, start.Z / 1000.0,
                     end.X / 1000.0, end.Y / 1000.0, end.Z / 1000.0);
+                SolidWorksFileLogger.Info("直管诊断：CreateLine 已返回；取得线段=" + (segment != null) + "。");
                 if (segment == null) throw new InvalidOperationException("三维路径直线创建失败。");
                 RequireActive(application, document);
                 VerifyLine(segment, start, end);
@@ -168,12 +175,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 sweep.ThinWallType = (short)swThinWallType_e.swThinWallOneDirection;
                 sweep.SetWallThickness(true, wallThicknessMm / 1000.0);
                 RequireActive(application, document);
+                SolidWorksFileLogger.Info("直管诊断：开始调用 CreateFeature。");
                 Feature feature = featureManager.CreateFeature(sweep);
+                SolidWorksFileLogger.Info("直管诊断：CreateFeature 已返回；取得特征=" + (feature != null) + "。");
                 if (feature == null) throw new InvalidOperationException("薄壁扫掠特征创建失败。");
 
                 stage = "重建和校验直管";
                 RequireActive(application, document);
-                if (!document.EditRebuild3())
+                SolidWorksFileLogger.Info("直管诊断：开始调用 EditRebuild3。");
+                bool rebuilt = document.EditRebuild3();
+                SolidWorksFileLogger.Info("直管诊断：EditRebuild3 已返回；结果=" + rebuilt + "。");
+                if (!rebuilt)
                     throw new InvalidOperationException("新零件重建失败。");
                 RequireActive(application, document);
                 bool warning;
@@ -183,7 +195,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 RequireActive(application, document);
                 VerifyLine(segment, start, end);
                 RequireActive(application, document);
+                SolidWorksFileLogger.Info("直管诊断：开始校验实体几何。");
                 VerifyBody(application, document, part, start, end, outsideDiameterMm, wallThicknessMm);
+                SolidWorksFileLogger.Info("直管诊断：实体几何校验已返回。");
                 RequireActive(application, document);
                 if (!string.IsNullOrEmpty(document.GetPathName()))
                     throw new InvalidOperationException("新零件已被外部操作保存，停止报告建模成功。");
@@ -224,8 +238,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 throw new InvalidOperationException("直管特征存在错误或警告；错误码=" + featureError + "。");
             var part = model.Document as PartDoc ??
                 throw new InvalidOperationException("无法读取直管零件实体。");
+            SolidWorksFileLogger.Info("直管诊断：开始保存后的实体几何复验。");
             VerifyBody(application, model.Document, part, route.Points[0], route.Points[1],
                 outsideDiameterMm, wallThicknessMm);
+            SolidWorksFileLogger.Info("直管诊断：保存后的实体几何复验已返回。");
             RequireActive(application, model.Document);
             SolidWorksFileLogger.Info("保存后的直管特征与路径端点、长度及内外径再次校验通过。");
         }

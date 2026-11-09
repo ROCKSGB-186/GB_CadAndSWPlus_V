@@ -141,8 +141,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                         int errors = 0;
                         int warnings = 0;
                         attempted = true;
+                        SolidWorksFileLogger.Info(partDescription + "诊断：开始调用 SaveAs3。");
                         bool saved = extension.SaveAs3(path, (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
                             (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
+                        SolidWorksFileLogger.Info(partDescription + "诊断：SaveAs3 已返回；结果=" + saved +
+                            "；错误码=" + errors + "；警告码=" + warnings + "。");
                         if (!saved || errors != 0 || warnings != 0)
                             throw new InvalidOperationException("SolidWorks 保存返回未完全成功；返回=" + saved +
                                 "；错误码=" + errors + "；警告码=" + warnings + "。");

@@ -288,11 +288,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     current = items[index];
                     int piece = index / 2;
                     stage = "创建前检查" + current.Label;
+                    SolidWorksFileLogger.Info("编号=" + operation + "；诊断：开始" + stage + "。");
                     ModelDoc2 previous = index == 0 ? source : items[index - 1].Document!;
                     CheckState(app, source, window, items, observed, previous, sourceTitle, sourcePath, sourceType, sourceDirty, -1);
+                    SolidWorksFileLogger.Info("编号=" + operation + "；诊断：首次创建前状态检查完成。");
                     CheckRemainingTargets(app, items, index);
                     CheckFilesAndDirectory(guard, items);
+                    SolidWorksFileLogger.Info("编号=" + operation + "；诊断：创建前路径和文件检查完成，开始再次检查状态。");
                     CheckState(app, source, window, items, observed, previous, sourceTitle, sourcePath, sourceType, sourceDirty, -1);
+                    SolidWorksFileLogger.Info("编号=" + operation + "；诊断：再次创建前状态检查完成。");
                     stage = "创建" + current.Label;
                     SolidWorksFileLogger.Info("编号=" + operation + "；阶段=" + stage + "；目标路径=" + current.Path + "。");
                     started = true;
@@ -453,8 +457,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             List<object> observed, ModelDoc2 active, string sourceTitle, string sourcePath, int sourceType,
             bool sourceDirty, int unsavedIndex)
         {
+            SolidWorksFileLogger.Info("多段保存诊断：开始检查 SolidWorks 上下文。");
             RequireContext(app, window);
+            SolidWorksFileLogger.Info("多段保存诊断：上下文检查完成，开始读取打开的文档。");
             List<object> open = PipelineStraightModelBuilder.ReadComObjects(app.GetDocuments(), "打开的文档列表");
+            SolidWorksFileLogger.Info("多段保存诊断：打开的文档读取完成，开始核验文档状态。");
             PipelineThreePieceModelTrial.RequireOpen(app, open, source);
             if (source.GetType() != sourceType || source.GetTitle() != sourceTitle ||
                 source.GetPathName() != sourcePath || source.GetSaveFlag() != sourceDirty)
@@ -489,6 +496,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             PipelineStraightModelBuilder.RequireActive(app, active);
             PipelineMultiPieceModelTrial.Remember(observed, source);
             foreach (object document in open) PipelineMultiPieceModelTrial.Remember(observed, document);
+            SolidWorksFileLogger.Info("多段保存诊断：文档状态检查完成。");
         }
 
         private static void RequireContext(SldWorks app, IntPtr window)

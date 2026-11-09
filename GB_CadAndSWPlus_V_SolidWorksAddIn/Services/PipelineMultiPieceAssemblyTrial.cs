@@ -151,7 +151,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 if (!File.Exists(assemblyTemplate)) throw new IOException("装配体模板在新建前已不可用。");
                 stage = "新建空测试装配体";
                 creationAttempted = true;
+                SolidWorksFileLogger.Info("多段装配诊断：开始调用 NewDocument。");
                 var document = app.NewDocument(assemblyTemplate, 0, 0, 0) as ModelDoc2;
+                SolidWorksFileLogger.Info("多段装配诊断：NewDocument 已返回；取得装配体文档接口=" + (document != null) + "。");
                 if (document == null) throw new InvalidOperationException("新建未返回装配体，可能存在未知文档。");
                 // 返回后、任何写操作前与保存期间及新建前见过的每个文档比较，未知身份一律拒绝。
                 PipelineStraightModelBuilder.RequireUiThread(window);
@@ -198,6 +200,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     Component2 component = assembly.AddComponent5(pathArray[i],
                         (int)swAddComponentConfigOptions_e.swAddComponentConfigOptions_CurrentSelectedConfig,
                         string.Empty, false, string.Empty, center[0], center[1], center[2]);
+                    SolidWorksFileLogger.Info("多段装配诊断：AddComponent5 已返回；组件=" + label +
+                        "；取得组件接口=" + (component != null) + "。");
                     if (component == null) throw new InvalidOperationException("插入未返回组件，可能存在未知残留。");
                     inserted.Add(component);
                     fixedStates.Add(component.IsFixed());

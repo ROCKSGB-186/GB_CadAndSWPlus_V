@@ -81,14 +81,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 if (activeCommand) throw new InvalidOperationException("存在活动命令，不能新建零件。");
 
                 stage = "记录已有文档并新建零件";
+                SolidWorksFileLogger.Info("弯头诊断：开始读取已有文档列表。");
                 List<object> previous = Straight.ReadComObjects(application.GetDocuments(), "已有文档列表");
+                SolidWorksFileLogger.Info("弯头诊断：已有文档列表读取完成。");
                 SolidWorksFileLogger.Info("开始新建独立未保存弯头零件。");
                 newDocumentAttempted = true;
                 var document = application.NewDocument(partTemplatePath, 0, 0, 0) as ModelDoc2;
+                SolidWorksFileLogger.Info("弯头诊断：NewDocument 已返回；取得零件文档接口=" + (document != null) + "。");
                 if (document == null) throw new InvalidOperationException("新建文档未返回零件对象。");
                 // 多段试验在任何文档写操作前，额外核对此前观察到的全部文档身份。
                 stage = "校验新文档身份";
+                SolidWorksFileLogger.Info("弯头诊断：开始校验新文档身份。");
                 verifyNewDocument?.Invoke(document, previous);
+                SolidWorksFileLogger.Info("弯头诊断：新文档身份回调已返回。");
                 stage = "记录已有文档并新建零件";
                 foreach (object old in previous)
                     if (application.IsSame(old, document) != (int)swObjectEquality.swObjectNotSame)
@@ -117,8 +122,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 Sketch? sketch = manager.ActiveSketch;
                 if (sketch == null || !sketch.Is3D()) throw new InvalidOperationException("未进入三维草图。");
                 RequireTarget(application, document);
+                SolidWorksFileLogger.Info("弯头诊断：开始调用 Create3PointArc。");
                 SketchSegment segment = manager.Create3PointArc(g.Start.X, g.Start.Y, g.Start.Z,
                     g.End.X, g.End.Y, g.End.Z, g.Mid.X, g.Mid.Y, g.Mid.Z);
+                SolidWorksFileLogger.Info("弯头诊断：Create3PointArc 已返回；取得线段=" + (segment != null) + "。");
                 if (segment == null || application.IsSame(segment.GetSketch(), sketch) != (int)swObjectEquality.swObjectSame)
                     throw new InvalidOperationException("圆弧未属于本次三维草图。");
                 VerifyArc(segment, g, () => RequireTarget(application, document));
@@ -147,18 +154,25 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 sweep.ThinWallType = (short)swThinWallType_e.swThinWallOneDirection;
                 sweep.SetWallThickness(true, g.Wall);
                 RequireTarget(application, document);
+                SolidWorksFileLogger.Info("弯头诊断：开始调用 CreateFeature。");
                 Feature feature = features.CreateFeature(sweep);
+                SolidWorksFileLogger.Info("弯头诊断：CreateFeature 已返回；取得特征=" + (feature != null) + "。");
                 if (feature == null) throw new InvalidOperationException("薄壁扫掠创建失败。");
 
                 stage = "重建和校验实体";
                 RequireTarget(application, document);
-                if (!document.EditRebuild3()) throw new InvalidOperationException("零件重建失败。");
+                SolidWorksFileLogger.Info("弯头诊断：开始调用 EditRebuild3。");
+                bool rebuilt = document.EditRebuild3();
+                SolidWorksFileLogger.Info("弯头诊断：EditRebuild3 已返回；结果=" + rebuilt + "。");
+                if (!rebuilt) throw new InvalidOperationException("零件重建失败。");
                 RequireTarget(application, document);
                 int error = feature.GetErrorCode2(out bool warning);
                 if (error != 0 || warning) throw new InvalidOperationException("扫掠特征存在错误或警告；错误码=" + error);
                 RequireTarget(application, document);
                 VerifyArc(segment, g, () => RequireTarget(application, document));
+                SolidWorksFileLogger.Info("弯头诊断：开始校验实体几何和体积。");
                 VerifyBody(application, document, part, g, () => RequireTarget(application, document));
+                SolidWorksFileLogger.Info("弯头诊断：实体几何和体积校验已返回。");
                 RequireTarget(application, document);
                 if (!string.IsNullOrEmpty(document.GetPathName()))
                     throw new InvalidOperationException("零件已被外部操作保存，停止报告成功。");
@@ -248,7 +262,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
                 stage = "检查实体几何和体积";
                 var part = document as PartDoc ?? throw new InvalidOperationException("无法读取弯头零件实体。");
+                SolidWorksFileLogger.Info("弯头诊断：开始保存后的实体几何和体积复验。");
                 VerifyBody(application, document, part, g, guard);
+                SolidWorksFileLogger.Info("弯头诊断：保存后的实体几何和体积复验已返回。");
                 guard();
                 SolidWorksFileLogger.Info("保存后的弯头特征、原路径圆弧、环面、端部和体积再次校验通过。");
             }
