@@ -54,6 +54,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         public static PipelineElbowModelResult Build(SldWorks application, IntPtr mainWindowHandle,
             string partTemplatePath, PipelineThreePiecePlan plan)
         {
+            return Build(application, mainWindowHandle, partTemplatePath, plan, null);
+        }
+
+        internal static PipelineElbowModelResult Build(SldWorks application, IntPtr mainWindowHandle,
+            string partTemplatePath, PipelineThreePiecePlan plan,
+            Action<ModelDoc2, IReadOnlyList<object>>? verifyNewDocument)
+        {
             string stage = "输入和线程预检";
             string? title = null;
             bool newDocumentAttempted = false;
@@ -79,6 +86,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 newDocumentAttempted = true;
                 var document = application.NewDocument(partTemplatePath, 0, 0, 0) as ModelDoc2;
                 if (document == null) throw new InvalidOperationException("新建文档未返回零件对象。");
+                // 多段试验在任何文档写操作前，额外核对此前观察到的全部文档身份。
+                stage = "校验新文档身份";
+                verifyNewDocument?.Invoke(document, previous);
+                stage = "记录已有文档并新建零件";
                 foreach (object old in previous)
                     if (application.IsSame(old, document) != (int)swObjectEquality.swObjectNotSame)
                         throw new InvalidOperationException("无法确认返回的文档是本次新建的独立零件。");

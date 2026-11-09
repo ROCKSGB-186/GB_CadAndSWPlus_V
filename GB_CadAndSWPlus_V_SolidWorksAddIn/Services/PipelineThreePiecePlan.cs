@@ -34,6 +34,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             double outsideDiameterMm, double wallThicknessMm)
         {
             if (route == null) throw new ArgumentNullException(nameof(route), "路线不能为空。");
+            double insideDiameter = ValidateDimensions(radiusMm, outsideDiameterMm, wallThicknessMm);
+            PipelineElbowGeometryResult elbow = PipelineElbowGeometry.Calculate(route, radiusMm);
+            return new PipelineThreePiecePlan(elbow, outsideDiameterMm, wallThicknessMm, insideDiameter);
+        }
+
+        internal static double ValidateDimensions(double radiusMm, double outsideDiameterMm, double wallThicknessMm)
+        {
             if (!IsFinite(radiusMm) || radiusMm <= 0)
                 throw new ArgumentOutOfRangeException(nameof(radiusMm), "中心线半径必须为有限且大于零的毫米数值。");
             if (!IsFinite(outsideDiameterMm) || outsideDiameterMm <= 0)
@@ -64,8 +71,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 Math.Abs((radiusMm - innerExtent) / outsideRadius - 1.0) > RelativePrecisionTolerance)
                 throw new ArithmeticException("弯头扫掠尺寸溢出或表示精度不足。");
 
-            PipelineElbowGeometryResult elbow = PipelineElbowGeometry.Calculate(route, radiusMm);
-            return new PipelineThreePiecePlan(elbow, outsideDiameterMm, wallThicknessMm, insideDiameter);
+            return insideDiameter;
         }
 
         private static bool IsFinite(double value)

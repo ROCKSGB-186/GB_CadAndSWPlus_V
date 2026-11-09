@@ -59,6 +59,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             SldWorks application, IntPtr mainWindowHandle, string partTemplatePath,
             PipeRoute route, double outsideDiameterMm, double wallThicknessMm)
         {
+            return Build(application, mainWindowHandle, partTemplatePath, route,
+                outsideDiameterMm, wallThicknessMm, null);
+        }
+
+        internal static PipelineStraightModelResult Build(
+            SldWorks application, IntPtr mainWindowHandle, string partTemplatePath,
+            PipeRoute route, double outsideDiameterMm, double wallThicknessMm,
+            Action<ModelDoc2, IReadOnlyList<object>>? verifyNewDocument)
+        {
             if (application == null) throw new ArgumentNullException(nameof(application));
             RequireUiThread(mainWindowHandle);
             ValidateInput(partTemplatePath, route, outsideDiameterMm, wallThicknessMm);
@@ -83,6 +92,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 if (document == null)
                     throw new InvalidOperationException("新建文档未返回零件对象，新文档可能残留。");
 
+                // 多段试验在任何文档写操作前，额外核对此前观察到的全部文档身份。
+                stage = "校验新文档身份";
+                verifyNewDocument?.Invoke(document, existingDocuments);
+                stage = "新建未保存零件";
                 RequireActive(application, document);
                 foreach (object existing in existingDocuments)
                 {

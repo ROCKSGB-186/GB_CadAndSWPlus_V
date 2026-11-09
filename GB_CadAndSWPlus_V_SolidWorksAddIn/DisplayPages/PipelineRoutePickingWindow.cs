@@ -39,6 +39,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _resume;
         private readonly Button _properties;
         private readonly Button _elbowGeometry;
+        private readonly Button _multiSegmentGeometry;
         private readonly Button _testModel;
         private readonly Button _saveModel;
         private readonly Button _insertModel;
@@ -79,7 +80,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、保存零件或进行新建空装配体试验。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
+                Text = "当前为试运行：两点直管可验证、保存或插入专用测试装配体；三点路线可试算、保存零件或进行新建空装配体试验；多点路线可试算或单独确认独立零件试验。不自动保存装配体或同步数据库。关闭窗口后路线和本次确认属性不会保存。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8)
             });
             heading.Children.Add(new TextBlock
@@ -128,6 +129,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _properties.IsEnabled = false;
             _elbowGeometry = AddButton(actions, "三点弯头试算", (sender, args) => CalculateElbowGeometry());
             _elbowGeometry.IsEnabled = false;
+            _multiSegmentGeometry = AddButton(actions, "多段管道试算", (sender, args) => CalculateMultiSegmentGeometry());
+            _multiSegmentGeometry.IsEnabled = false;
             _testModel = AddButton(actions, "验证独立直管", (sender, args) => TestStraightModel(false));
             _testModel.IsEnabled = false;
             _saveModel = AddButton(actions, "保存独立直管", (sender, args) => TestStraightModel(true));
@@ -434,6 +437,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _loadingProperties = true;
             _properties.IsEnabled = false;
             _elbowGeometry.IsEnabled = false;
+            _multiSegmentGeometry.IsEnabled = false;
             _testModel.IsEnabled = false;
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
@@ -506,6 +510,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                             blockReason + (_completedRoute.Points.Count == 2 && !_insertionAttempted
                                 ? "\n如需专用测试装配体试验，可使用路线窗口的【已有单零件试验】或【已有双零件试验】。" : "") +
                             (_completedRoute.Points.Count == 3 ? "\n可使用【三点弯头试算】核验尺寸、验证或保存独立零件，或单独选择新建空装配体试验。" : "") +
+                            (_completedRoute.Points.Count > 3 ? "\n可使用【多段管道试算】查看理论几何；独立零件试验需另行确认。" : "") +
                             "\n关闭路线窗口后本次属性将丢失。",
                             "管道属性试运行", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
@@ -529,6 +534,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 {
                     _properties.IsEnabled = _completedRoute != null;
                     _elbowGeometry.IsEnabled = _completedRoute?.Points.Count == 3;
+                    _multiSegmentGeometry.IsEnabled = _completedRoute?.Points.Count > 3;
                     _testModel.IsEnabled = _completedRoute?.Points.Count == 2 && _confirmedModelAttributes != null;
                     _saveModel.IsEnabled = _testModel.IsEnabled;
                     _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
@@ -538,6 +544,27 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
             if (startAfterConfirmation && !_windowClosed)
                 TestStraightModel(true, true);
+        }
+
+        private void CalculateMultiSegmentGeometry()
+        {
+            if (_loadingProperties || _completedRoute == null || _completedRoute.Points.Count <= 3)
+            {
+                SolidWorksFileLogger.Warning("多段管道几何试算未启动：路线状态或点数不符合要求。");
+                MessageBox.Show(this, "请先完成至少四个坐标的路线，再进行多段管道试算。",
+                    "多段管道几何试算", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            try
+            {
+                SolidWorksFileLogger.Info("打开多段管道几何试算；独立零件试验需另行确认。");
+                new PipelineMultiSegmentGeometryWindow(_completedRoute, _confirmedModelAttributes,
+                    _application, _document, new WindowInteropHelper(this).Owner) { Owner = this }.ShowDialog();
+            }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                ReportError("打开多段管道几何试算失败", ex);
+            }
         }
 
         private void CalculateElbowGeometry()
@@ -632,6 +659,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 : !nonEmptyTrial && _autoRebuild.IsChecked == true);
             _testModel.IsEnabled = false;
             _elbowGeometry.IsEnabled = false;
+            _multiSegmentGeometry.IsEnabled = false;
             _saveModel.IsEnabled = false;
             _insertModel.IsEnabled = false;
             _singleComponentTrial.IsEnabled = false;
@@ -837,6 +865,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 {
                     _properties.IsEnabled = _completedRoute != null;
                     _elbowGeometry.IsEnabled = _completedRoute?.Points.Count == 3;
+                    _multiSegmentGeometry.IsEnabled = _completedRoute?.Points.Count > 3;
                     _testModel.IsEnabled = _completedRoute?.Points.Count == 2 && _confirmedModelAttributes != null;
                     _saveModel.IsEnabled = _testModel.IsEnabled;
                     _insertModel.IsEnabled = _testModel.IsEnabled && _assemblyRouteGuard.IsValid && !_insertionAttempted;
