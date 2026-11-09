@@ -26,6 +26,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _calculate;
         private readonly Button _build;
         private readonly Button _save;
+        private readonly Button _assembly;
         private readonly Button _close;
         private readonly SldWorks? _application;
         private readonly ModelDoc2? _sourceDocument;
@@ -47,6 +48,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _mainWindow = mainWindow;
             _build.IsEnabled = true;
             _save.IsEnabled = true;
+            _assembly.IsEnabled = true;
         }
 
         internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -68,7 +70,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "几何试算不创建模型；独立零件验证或保存试验需另行确认。保存试验会新建零件，不会保存已打开的测试零件。统一使用本次确认的管径、壁厚和输入半径，近似路线仅供预览，不支持建模。不检查整体自交、干涉或工程规范。",
+                Text = "几何试算不创建模型；独立零件和新建空装配体试验需另行确认。保存或装配试验会重新新建零件，不修改以前的测试文件。统一使用本次确认的管径、壁厚和输入半径，近似路线仅供预览，不支持建模。不检查整体自交、干涉或工程规范。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -91,6 +93,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _save = new Button { Content = "保存多段独立零件", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _save.Click += (sender, args) => SavePieces();
             buttons.Children.Add(_save);
+            _assembly = new Button { Content = "多段空装配体试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _assembly.Click += (sender, args) => AssemblePieces();
+            buttons.Children.Add(_assembly);
             _close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             _close.Click += (sender, args) => Close();
             buttons.Children.Add(_close);
@@ -350,6 +355,122 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             finally { SetTrialRunning(false); }
         }
 
+        private void AssemblePieces()
+        {
+            if (_building || _application == null || _sourceDocument == null)
+            {
+                ShowError("试验正在进行或原路线文档不可用。");
+                return;
+            }
+            if (!TryCreatePlan(true, out PipelineMultiSegmentPlan? plan, out _)) return;
+            SetTrialRunning(true);
+            IReadOnlyList<string>? savedPaths = null;
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                string? partTemplate = ChoosePartTemplate();
+                if (partTemplate == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建模型或保存零件文件。";
+                    SolidWorksFileLogger.Info("用户取消选择多段装配试验零件模板。");
+                    return;
+                }
+                string? assemblyTemplate = ChooseAssemblyTemplate();
+                if (assemblyTemplate == null)
+                {
+                    _result.Text = "已取消选择装配体模板，未创建模型或保存零件文件。";
+                    SolidWorksFileLogger.Info("用户取消选择多段装配试验装配体模板。");
+                    return;
+                }
+                string? folder = ChooseEmptyTestFolder();
+                if (folder == null)
+                {
+                    _result.Text = "已取消选择测试文件夹，未创建模型或保存零件文件。";
+                    SolidWorksFileLogger.Info("用户取消选择多段装配试验文件夹。");
+                    return;
+                }
+                using (PipelineMultiPieceSaveConfirmation confirmation =
+                    PipelineMultiPieceSaveTrial.PreparePaths(_application, _mainWindow, folder, plan!))
+                {
+                    IReadOnlyList<string> paths = confirmation.Paths;
+                    if (MessageBox.Show(this, "将先按路线顺序重新创建并保存 " + paths.Count + " 个独立测试零件：\n" +
+                        string.Join("\n", paths) +
+                        "\n然后新建一个未保存的空测试装配体并逐件插入；必要时只调整本次新增组件的变换以对齐路线坐标，不改变固定状态。不会使用、保存或修改以前的测试文件或源装配体。\n" +
+                        "仅使用本机专用空测试文件夹；从确认到试验结束，其他程序和人员不得访问或更改文件及目录，程序无法完全阻止并发写入。路线较长时可能耗时较长、界面暂时无响应。\n" +
+                        "不自动保存或主动重建装配体，不添加配合，不写属性或数据库；组件可能固定或浮动，未检查连接或干涉。\n" +
+                        "失败可能留下部分文件、未保存零件、装配体或组件；不会自动删除、关闭或回滚。请勿用于正式工程。是否继续？",
+                        "多段空装配体试验", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                        MessageBoxResult.No) != MessageBoxResult.Yes)
+                    {
+                        _result.Text = "已取消多段装配试验，未创建模型或保存零件文件。";
+                        SolidWorksFileLogger.Info("用户取消多段空装配体试验。");
+                        return;
+                    }
+                    RequireSourceDocument();
+                    PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                    PipelineMultiPieceAssemblyTrialResult assembly = PipelineMultiPieceAssemblyTrial.WithFreshSave(() =>
+                    {
+                        PipelineMultiPieceSavedResult saved = PipelineMultiPieceSaveTrial.BuildAndSave(
+                            _application, _sourceDocument, _mainWindow, partTemplate, plan!, confirmation);
+                        savedPaths = paths;
+                        return PipelineMultiPieceAssemblyTrial.Build(
+                            _application, _sourceDocument, _mainWindow, assemblyTemplate, saved);
+                    });
+                    _result.Text = "多段零件已插入新建未保存的测试装配体；未主动重建、自动保存或添加配合，未校验连接或干涉。";
+                    MessageBox.Show(this, _result.Text + "\n装配体：" + assembly.AssemblyTitle +
+                        "\n零件文件（按路线顺序）：\n" + string.Join("\n", paths) +
+                        "\n组件可能固定或浮动；未写入属性或数据库。请检查测试装配体。",
+                        "多段空装配体试验", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (PipelineMultiPieceSaveTrialException ex)
+            {
+                SolidWorksFileLogger.Error("多段装配试验的保存阶段未完成：" + ex);
+                _result.Text = "多段装配试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "多段空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (PipelineMultiPieceAssemblyTrialException ex)
+            {
+                SolidWorksFileLogger.Error("多段装配试验未完成：" + ex);
+                _result.Text = "多段装配试验未完成：" + ex.Message;
+                MessageBox.Show(this, _result.Text, "多段空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("多段装配试验未启动或未完成；异常类型=" + ex.GetType().Name + "。");
+                _result.Text = "多段装配试验未完成：" + ex.Message;
+                string state = savedPaths == null ? "\n请检查是否有文件或文档残留。" :
+                    "\n零件此前已保存到：\n" + string.Join("\n", savedPaths);
+                MessageBox.Show(this, _result.Text + state + "\n未自动删除、关闭或回滚。",
+                    "多段空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally { SetTrialRunning(false); }
+        }
+
+        private string? ChooseAssemblyTemplate()
+        {
+            string template = _application!.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplateAssembly);
+            if (!string.IsNullOrWhiteSpace(template) && PipelineStraightModelBuilder.IsFullyQualifiedPath(template) &&
+                File.Exists(template) && string.Equals(Path.GetExtension(template), ".asmdot", StringComparison.OrdinalIgnoreCase))
+                return template;
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择用于多段空装配体试验的装配体模板",
+                Filter = "SolidWorks 装配体模板 (*.asmdot)|*.asmdot",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+            if (dialog.ShowDialog(this) != true) return null;
+            if (!PipelineStraightModelBuilder.IsFullyQualifiedPath(dialog.FileName) || !File.Exists(dialog.FileName) ||
+                !string.Equals(Path.GetExtension(dialog.FileName), ".asmdot", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("必须选择存在的装配体模板 .asmdot 绝对路径。");
+            return dialog.FileName;
+        }
+
         private string? ChooseEmptyTestFolder()
         {
             using (var dialog = new System.Windows.Forms.FolderBrowserDialog
@@ -381,6 +502,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _calculate.IsEnabled = !running;
             _build.IsEnabled = !running && _application != null && _sourceDocument != null;
             _save.IsEnabled = !running && _application != null && _sourceDocument != null;
+            _assembly.IsEnabled = !running && _application != null && _sourceDocument != null;
             _close.IsEnabled = !running;
         }
 

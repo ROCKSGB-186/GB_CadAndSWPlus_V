@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
+using System.Windows.Threading;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -27,11 +28,77 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
     internal sealed class PipelineMultiPieceSavedResult
     {
-        internal PipelineMultiPieceSavedResult(IList<PipelineMultiPieceSavedPart> parts)
+        [ThreadStatic]
+        private static PipelineMultiPieceSavedResult? pending;
+        private readonly SldWorks app;
+        private readonly ModelDoc2 source;
+        private readonly IntPtr window;
+        private readonly int thread;
+        private readonly object? scope;
+        private int consumed;
+        internal PipelineMultiPieceSavedResult(IList<PipelineMultiPieceSavedPart> parts, SldWorks app,
+            ModelDoc2 source, IntPtr window, IList<object> observed, string sourceTitle, string sourcePath,
+            int sourceType, bool sourceDirty, string? sourceConfiguration,
+            IList<PipelineMultiPieceSaveProtection.FileGuard.Snapshot> files)
         {
             Parts = new ReadOnlyCollection<PipelineMultiPieceSavedPart>(new List<PipelineMultiPieceSavedPart>(parts));
+            this.app = app; this.source = source; this.window = window;
+            thread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+            scope = PipelineMultiPieceAssemblyTrial.CurrentScope;
+            Observed = new ReadOnlyCollection<object>(new List<object>(observed));
+            SourceTitle = sourceTitle; SourcePath = sourcePath; SourceType = sourceType;
+            SourceDirty = sourceDirty; SourceConfiguration = sourceConfiguration;
+            Files = new ReadOnlyCollection<PipelineMultiPieceSaveProtection.FileGuard.Snapshot>(
+                new List<PipelineMultiPieceSaveProtection.FileGuard.Snapshot>(files));
+
+            // 只允许同一个 UI 同步回调中的紧接装配；返回消息循环后使结果失效。
+            // 新一次保存也会主动使上一次结果失效，不依赖计时器。
+            pending = null;
+            try
+            {
+                Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+                    throw new InvalidOperationException("UI 消息调度器不可用。");
+                pending = this;
+                DispatcherOperation operation = dispatcher.BeginInvoke(DispatcherPriority.Send,
+                    new Action(() => { if (ReferenceEquals(pending, this)) pending = null; }));
+                if (operation.Status == DispatcherOperationStatus.Aborted)
+                    throw new InvalidOperationException("无法限定保存结果的 UI 回调有效期。");
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is Win32Exception ||
+                ex is NotSupportedException)
+            {
+                // 不影响单独保存功能；无法可靠限定有效期时禁止该结果参与装配。
+                if (ReferenceEquals(pending, this)) pending = null;
+                SolidWorksFileLogger.Warning("保存已完成，但无法限定装配结果有效期；禁止使用该结果装配；异常类型=" +
+                    ex.GetType().Name + "。");
+            }
         }
         public IReadOnlyList<PipelineMultiPieceSavedPart> Parts { get; }
+        internal IReadOnlyList<object> Observed { get; }
+        internal IReadOnlyList<PipelineMultiPieceSaveProtection.FileGuard.Snapshot> Files { get; }
+        internal string SourceTitle { get; }
+        internal string SourcePath { get; }
+        internal int SourceType { get; }
+        internal bool SourceDirty { get; }
+        internal string? SourceConfiguration { get; }
+
+        internal static void InvalidatePending() { pending = null; }
+
+        // 保存结果只允许在原 UI 回调、原线程、原会话中用于一次装配尝试。
+        internal void Consume(SldWorks currentApp, ModelDoc2 currentSource, IntPtr currentWindow)
+        {
+            if (System.Threading.Interlocked.Exchange(ref consumed, 1) != 0)
+                throw new InvalidOperationException("保存结果已经用于装配尝试，不能重复使用。");
+            if (thread != System.Threading.Thread.CurrentThread.ManagedThreadId || window != currentWindow ||
+                !ReferenceEquals(app, currentApp) || !ReferenceEquals(pending, this) ||
+                (scope != null && !ReferenceEquals(scope, PipelineMultiPieceAssemblyTrial.CurrentScope)))
+                throw new InvalidOperationException("保存结果已过期，或不属于当前线程、窗口及 SolidWorks 会话。");
+            pending = null;
+            PipelineStraightModelBuilder.RequireUiThread(window);
+            if (app.IsSame(source, currentSource) != (int)swObjectEquality.swObjectSame)
+                throw new InvalidOperationException("保存结果不属于当前源文档。");
+        }
     }
 
     internal sealed class PipelineMultiPieceSaveTrialException : Exception
@@ -183,6 +250,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 if (app == null) throw new ArgumentNullException(nameof(app));
                 if (source == null) throw new ArgumentNullException(nameof(source));
                 PipelineStraightModelBuilder.RequireUiThread(window);
+                PipelineMultiPieceSavedResult.InvalidatePending();
                 var requested = new List<string>(confirmation.Paths);
                 template = PipelineMultiPieceModelTrial.ValidatePlan(template, plan, step =>
                 {
@@ -210,6 +278,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 string sourcePath = source.GetPathName();
                 int sourceType = source.GetType();
                 bool sourceDirty = source.GetSaveFlag();
+                string? sourceConfiguration = source.ConfigurationManager?.ActiveConfiguration?.Name;
                 if (string.IsNullOrWhiteSpace(sourceTitle))
                     throw new InvalidOperationException("源文档标题不可用。");
                 CheckState(app, source, window, items, observed, source, sourceTitle, sourcePath, sourceType, sourceDirty, -1);
@@ -298,10 +367,19 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     sourceTitle, sourcePath, sourceType, sourceDirty, -1);
                 CheckFilesAndDirectory(guard, items);
                 var result = new List<PipelineMultiPieceSavedPart>();
+                var snapshots = new List<PipelineMultiPieceSaveProtection.FileGuard.Snapshot>();
                 foreach (Item item in items)
+                {
                     result.Add(new PipelineMultiPieceSavedPart(item.Label, item.Path, item.Title!, item.Configuration!, item.Document!));
+                    snapshots.Add((item.File ?? throw new InvalidOperationException("保存文件保护不可用。")).CaptureSnapshot());
+                }
+                if (source.ConfigurationManager?.ActiveConfiguration?.Name != sourceConfiguration)
+                    throw new InvalidOperationException("源文档活动配置已改变。");
+                CheckState(app, source, window, items, observed, items[items.Count - 1].Document!,
+                    sourceTitle, sourcePath, sourceType, sourceDirty, -1);
                 SolidWorksFileLogger.Info("编号=" + operation + "；多段逐件保存复验完成；未装配、写属性数据库或关闭文档。");
-                return new PipelineMultiPieceSavedResult(result);
+                return new PipelineMultiPieceSavedResult(result, app, source, window, observed,
+                    sourceTitle, sourcePath, sourceType, sourceDirty, sourceConfiguration, snapshots);
             }
             catch (Exception ex) when (Expected(ex))
             {

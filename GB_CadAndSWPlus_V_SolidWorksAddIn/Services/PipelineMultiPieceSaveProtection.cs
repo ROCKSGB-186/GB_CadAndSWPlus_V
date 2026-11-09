@@ -242,6 +242,26 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             private readonly Information baseline;
             private readonly byte[] hash;
 
+            internal sealed class Snapshot
+            {
+                private readonly Information identity;
+                private readonly byte[] digest;
+                private Snapshot(Information identity, byte[] digest)
+                { this.identity = identity; this.digest = (byte[])digest.Clone(); }
+                internal static Snapshot From(FileGuard guard) => new Snapshot(guard.baseline, guard.hash);
+                internal bool Matches(FileGuard guard) =>
+                    SameFile(identity, guard.baseline) && digest.SequenceEqual(guard.hash);
+            }
+
+            internal Snapshot CaptureSnapshot() { Check(); return Snapshot.From(this); }
+
+            internal void CheckSnapshot(Snapshot snapshot)
+            {
+                Check();
+                if (snapshot == null || !snapshot.Matches(this))
+                    throw new IOException("已保存文件自本次保存后发生变化：" + path);
+            }
+
             private FileGuard(string path, SafeFileHandle held, Information baseline, byte[] hash)
             { this.path = path; this.held = held; this.baseline = baseline; this.hash = hash; }
 
