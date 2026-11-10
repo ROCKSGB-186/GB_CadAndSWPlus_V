@@ -47,7 +47,7 @@ public sealed class AuthUserDepartmentService
         };
     }
 
-    public async Task<SessionResponse> ValidateSessionAsync(string accessToken, CancellationToken cancellationToken)
+    public async Task<SessionResponse> ValidateSessionAsync(string accessToken, CancellationToken cancellationToken, bool hideDatabaseExceptionDetails = false)
     {
         if (string.IsNullOrWhiteSpace(accessToken))
             return FailureSession("会话令牌不能为空。");
@@ -70,7 +70,7 @@ public sealed class AuthUserDepartmentService
         if (session == null)
             return FailureSession("登录会话已失效，请重新登录。");
 
-        await ExecuteAsync($"UPDATE {sessions} SET LAST_SEEN_AT={now} WHERE TOKEN_HASH={p}TokenHash", new { TokenHash = tokenHash }, cancellationToken).ConfigureAwait(false);
+        await ExecuteAsync($"UPDATE {sessions} SET LAST_SEEN_AT={now} WHERE TOKEN_HASH={p}TokenHash", new { TokenHash = tokenHash }, cancellationToken, hideDatabaseExceptionDetails).ConfigureAwait(false);
         return new SessionResponse { Success = true, Message = "会话有效。", User = session, ExpiresAtUtc = session.ExpiresAtUtc };
     }
 
@@ -449,7 +449,7 @@ public sealed class AuthUserDepartmentService
         if (GetDatabaseType() == "DM") { await using var c = new DmConnection(GetConnectionString("DM")); await c.OpenAsync(token); return await c.ExecuteScalarAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token)); }
         await using var m = new MySqlConnection(GetConnectionString("MYSQL")); await m.OpenAsync(token); return await m.ExecuteScalarAsync<T>(new CommandDefinition(sql, parameters, cancellationToken: token));
     }
-    private async Task<int> ExecuteAsync(string sql, object parameters, CancellationToken token)
+    private async Task<int> ExecuteAsync(string sql, object parameters, CancellationToken token, bool hideExceptionDetails = false)
     {
         string databaseType = GetDatabaseType();
         _logger.LogInformation("开始执行数据库写入。数据库类型={DatabaseType}", databaseType);
@@ -463,7 +463,10 @@ public sealed class AuthUserDepartmentService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "数据库写入失败。数据库类型={DatabaseType}", databaseType);
+            if (hideExceptionDetails)
+                _logger.LogError("数据库写入失败。数据库类型={DatabaseType}；异常类型={ExceptionType}", databaseType, ex.GetType().FullName);
+            else
+                _logger.LogError(ex, "数据库写入失败。数据库类型={DatabaseType}", databaseType);
             throw;
         }
     }

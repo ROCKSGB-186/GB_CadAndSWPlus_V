@@ -37,12 +37,13 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
         {
             var sw = Stopwatch.StartNew();
             var request = context.HttpContext.Request;
+            bool hideRequest = ElementPropertyDefinitionLogProtection.ShouldHideRequest(request);
 
             // 1. 获取客户端信息
             string clientIp = GetClientIp(context.HttpContext);
             string method = request.Method;
             string path = request.Path;
-            string queryString = request.QueryString.HasValue ? SanitizeQuery(request.Query) : string.Empty;
+            string queryString = hideRequest ? "(已隐藏)" : request.QueryString.HasValue ? SanitizeQuery(request.Query) : string.Empty;
             string traceId = context.HttpContext.TraceIdentifier;
             string platform = GetPlatform(context.HttpContext);
             string controllerName = context.ActionDescriptor.RouteValues.TryGetValue("controller", out string? controller)
@@ -53,8 +54,8 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 : "未知动作";
 
             // 2. 获取关键请求参数摘要（避免日志过大，只取前 500 字符）
-            string? bodySummary = null;
-            if ((request.ContentLength ?? 0) > 0 && (method == "POST" || method == "PUT"))
+            string? bodySummary = hideRequest ? "(已隐藏)" : null;
+            if (!hideRequest && (request.ContentLength ?? 0) > 0 && (method == "POST" || method == "PUT"))
             {
                 try
                 {
@@ -119,8 +120,11 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 // ---- 服务器端异常 ----
                 resultSb.AppendLine($"  结果        : ❌ 服务器端异常");
                 resultSb.AppendLine($"  异常类型    : {occurredException.GetType().FullName}");
-                resultSb.AppendLine($"  异常消息    : {SanitizeText(occurredException.Message)}");
-                resultSb.AppendLine($"  堆栈摘要    : {occurredException.StackTrace?[..Math.Min(occurredException.StackTrace?.Length ?? 0, 1000)]}");
+                if (!hideRequest)
+                {
+                    resultSb.AppendLine($"  异常消息    : {SanitizeText(occurredException.Message)}");
+                    resultSb.AppendLine($"  堆栈摘要    : {occurredException.StackTrace?[..Math.Min(occurredException.StackTrace?.Length ?? 0, 1000)]}");
+                }
                 _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
             }
 
@@ -142,7 +146,7 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                 {
                     // 4xx = 客户端问题
                     resultSb.AppendLine($"  结果        : ⚠️ 客户端错误 (HTTP {statusCode})");
-                    if (resultContext.Result != null)
+                    if (!hideRequest && resultContext.Result != null)
                         resultSb.AppendLine($"  返回详情    : {resultContext.Result}");
                     _logger.WriteLineForPlatform(platform, LogLevel.Warning, resultSb.ToString());
                 }
@@ -153,7 +157,8 @@ namespace GB_CadAndSWPlus_V.UploadApi.Filters
                     if (resultContext.Exception != null)
                     {
                         resultSb.AppendLine($"  异常类型    : {resultContext.Exception.GetType().FullName}");
-                        resultSb.AppendLine($"  异常消息    : {SanitizeText(resultContext.Exception.Message)}");
+                        if (!hideRequest)
+                            resultSb.AppendLine($"  异常消息    : {SanitizeText(resultContext.Exception.Message)}");
                     }
                     _logger.WriteLineForPlatform(platform, LogLevel.Error, resultSb.ToString());
                 }

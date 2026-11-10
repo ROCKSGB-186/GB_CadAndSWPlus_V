@@ -2,10 +2,8 @@ using GB_CadAndSWPlus_V.UploadApi.Services;
 using GB_CadAndSWPlus_V.UploadApi.Filters;
 using GB_CadAndSWPlus_V_Server.Services;
 using GB_CadAndSWPlus_V_Server.Middleware;
-using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.ResponseCompression;
-using System.Text.Json;
 
 
  // 1. 创建 Web 应用: 初始化 ASP.NET Core 应用构建器，它会读取配置文件（如 appsettings.json）、环境变量等。
@@ -208,42 +206,24 @@ startupLogger.LogInformation(
     storageRoot,
     !string.IsNullOrWhiteSpace(storageRoot) && Directory.Exists(storageRoot));
 
+// 在本应用的转发头处理之前捕获 IIS HTTPS 服务器变量；目标 IIS 仍需验证。
+app.UseMiddleware<ElementPropertyDefinitionTransportSnapshotMiddleware>();
+
 // 统一记录所有请求的开始、结束、状态码、耗时和异常；请求体仅记录脱敏摘要。
 if (builder.Configuration.GetValue<bool>("Server:ForwardedHeadersEnabled"))
 {
     app.UseForwardedHeaders();
 }
+app.UseMiddleware<ElementPropertyDefinitionTransportMiddleware>();
 app.UseResponseCompression();
 app.UseMiddleware<RequestLoggingMiddleware>();
 
-// 统一异常处理：避免向客户端泄露数据库连接异常和服务器堆栈，详细异常由服务端日志记录。
+// 统一异常处理：避免向客户端泄露数据库连接异常和服务器堆栈。
 app.UseExceptionHandler(exceptionApp =>
 {
-    exceptionApp.Run(async context =>
-    {
-        var exceptionFeature = context.Features.Get<IExceptionHandlerFeature>();
-        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
-            .CreateLogger("GlobalExceptionHandler");
-
-        if (exceptionFeature?.Error != null)
-        {
-            logger.LogError(exceptionFeature.Error,
-                "未处理的 API 异常。TraceId={TraceId}; Method={Method}; Path={Path}; Query={Query}",
-                context.TraceIdentifier,
-                context.Request.Method,
-                context.Request.Path,
-                context.Request.QueryString.HasValue ? context.Request.QueryString.Value : string.Empty);
-        }
-
-        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-        context.Response.ContentType = "application/json; charset=utf-8";
-        await context.Response.WriteAsync(JsonSerializer.Serialize(new
-        {
-            success = false,
-            message = "服务器内部错误，请联系管理员。"
-        }));
-    });
+    exceptionApp.Run(GlobalExceptionHandler.HandleAsync);
 });
+app.UseMiddleware<ElementPropertyDefinitionExceptionMiddleware>();
 
 // 6. 配置 API 文档中间件：开发环境默认启用，生产环境可通过 Server:EnableSwagger 显式启用。
 bool enableSwagger = app.Environment.IsDevelopment()

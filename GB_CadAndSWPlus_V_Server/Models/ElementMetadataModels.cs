@@ -1,5 +1,16 @@
 namespace GB_CadAndSWPlus_V.UploadApi.Models;
 
+/// <summary>新增构件属性定义的输入；编码、名称和类型必须显式提供。</summary>
+public sealed class CreateElementPropertyDefinitionRequest
+{
+    public string? Code { get; init; }
+    public string? Name { get; init; }
+    public string? DataType { get; init; }
+    public string? Unit { get; init; }
+    public bool? IsRequired { get; init; }
+    public int? SortOrder { get; init; }
+}
+
 public sealed class ElementPropertyRequest
 {
     public long ElementDefinitionId { get; init; }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using GB_CadAndSWPlus_V_Server.Services;
+using GB_CadAndSWPlus_V.UploadApi.Filters;
 using FileLogLevel = GB_CadAndSWPlus_V_Server.Services.LogLevel;
 
 namespace GB_CadAndSWPlus_V_Server.Middleware;
@@ -28,10 +29,11 @@ public sealed class RequestLoggingMiddleware
         string method = context.Request.Method;
         string path = context.Request.Path.ToString();
         string platform = GetPlatform(context);
-        string query = context.Request.QueryString.HasValue
+        bool hideRequest = ElementPropertyDefinitionLogProtection.ShouldHideRequest(context.Request);
+        string query = hideRequest ? "(已隐藏)" : context.Request.QueryString.HasValue
             ? SanitizeQuery(context.Request.Query)
             : string.Empty;
-        string requestBody = await ReadBodySummaryAsync(context).ConfigureAwait(false);
+        string requestBody = hideRequest ? "(已隐藏)" : await ReadBodySummaryAsync(context).ConfigureAwait(false);
 
         _logger.WriteLineForPlatform(platform, FileLogLevel.Info,
             $"[请求开始] 跟踪号={traceId}；客户端地址={clientIp}；请求方式={method}；请求路径={path}；" +
@@ -56,8 +58,8 @@ public sealed class RequestLoggingMiddleware
                     ? FileLogLevel.Warning
                     : FileLogLevel.Info;
 
-            string exceptionSummary = exception == null
-                ? string.Empty
+            string exceptionSummary = exception == null ? string.Empty
+                : hideRequest ? $"；异常类型={exception.GetType().FullName}"
                 : $"；异常类型={exception.GetType().FullName}；异常消息={SanitizeText(exception.Message)}";
 
             _logger.WriteLineForPlatform(platform, level,

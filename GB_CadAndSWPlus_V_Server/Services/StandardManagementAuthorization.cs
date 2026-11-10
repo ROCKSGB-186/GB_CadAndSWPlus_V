@@ -21,6 +21,10 @@ public static class StandardManagementAuthorization
     public static bool IsAdministrator(HttpRequest request, out string operatorName)
     {
         operatorName = request.Headers["X-Operator-Name"].FirstOrDefault()?.Trim() ?? string.Empty;
-        return AdministratorNames.Contains(operatorName);
+        return IsAdministratorName(operatorName);
     }
+
+    /// <summary>判断服务器认证后的用户名是否属于现有管理员名称集。</summary>
+    public static bool IsAdministratorName(string? username) =>
+        username != null && AdministratorNames.Contains(username);
 }

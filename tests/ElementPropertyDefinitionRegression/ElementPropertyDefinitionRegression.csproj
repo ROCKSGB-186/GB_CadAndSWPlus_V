@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Models\ElementMetadataModels.cs" Link="ElementMetadataModels.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Models\AuthUserDepartmentModels.cs" Link="AuthUserDepartmentModels.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Models\DepartmentModels.cs" Link="DepartmentModels.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Filters\ElementPropertyDefinitionLogProtection.cs" Link="ElementPropertyDefinitionLogProtection.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Filters\OperationLogFilter.cs" Link="OperationLogFilter.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Middleware\RequestLoggingMiddleware.cs" Link="RequestLoggingMiddleware.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Middleware\GlobalExceptionHandler.cs" Link="GlobalExceptionHandler.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Middleware\ElementPropertyDefinitionExceptionMiddleware.cs" Link="ElementPropertyDefinitionExceptionMiddleware.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Middleware\ElementPropertyDefinitionTransportMiddleware.cs" Link="ElementPropertyDefinitionTransportMiddleware.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Middleware\ElementPropertyDefinitionTransportSnapshotMiddleware.cs" Link="ElementPropertyDefinitionTransportSnapshotMiddleware.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Services\ElementPropertyDefinitionCreation.cs" Link="ElementPropertyDefinitionCreation.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Services\ElementPropertyDefinitionWriteKey.cs" Link="ElementPropertyDefinitionWriteKey.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Services\StandardManagementAuthorization.cs" Link="StandardManagementAuthorization.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_Server\Controllers\ElementMetadataController.cs" Link="ElementMetadataController.cs" />
+  </ItemGroup>
+</Project>
