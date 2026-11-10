@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Windows.Controls;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages;
+using GB_CadAndSWPlus_V.SolidWorksAddIn.Helpers;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
@@ -44,8 +45,15 @@ internal static class Program
 
     private static Dictionary<string, string> Values() => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+    private static void Reject(Action action, string message)
+    {
+        try { action(); }
+        catch (InvalidOperationException) { _count++; return; }
+        throw new InvalidOperationException(message);
+    }
+
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         var start = Values();
         var end = Values();
@@ -77,6 +85,12 @@ internal static class Program
         var second = new PipePoint3D(100.5, 2.5, 3.75);
         Check(selection.TryAddPoint(first, out _), "可手动添加起点");
         Check(!selection.TryAddPoint(first, out _), "重复相邻点应拒绝");
+        var paused = selection.CopySelecting();
+        Check(paused.TryAddPoint(second, out _) && paused.Points.Count == 2 && selection.Points.Count == 1,
+            "端面坐标加入暂停快照不得改动原路线");
+        var resumed = paused.CopySelecting();
+        Check(resumed.Points.Count == 2 && resumed.TryRemoveLastPoint(out _) && resumed.Points.Count == 1 &&
+            paused.Points.Count == 2, "恢复或撤销不得破坏暂停快照");
         Check(selection.TryAddPoint(second, out _), "可手动添加终点");
         Check(selection.TryComplete(out PipeRoute? route, out _) && route != null &&
             route.StartKind == PipeEndpointKind.Free && route.EndKind == PipeEndpointKind.Free &&
@@ -121,6 +135,35 @@ internal static class Program
             "用户确认后应仅更新非空参考字段");
         Check(((TextBox)pipeInputs["PN"]).Text == string.Empty, "空参考不得覆盖目标字段");
         properties.Close();
+
+        var faceCenter = new PipePoint3D(23, 0, 0);
+        var faceNormal = new PipeDirection3D(1, 0, 0);
+        var faceAxis = new PipeDirection3D(-1, 0, 0);
+        PipelineCircularBoundary Circle(PipePoint3D center, PipeDirection3D axis, double radius, double lengthFactor = 1) =>
+            new PipelineCircularBoundary(center, axis, radius, 2 * Math.PI * radius * lengthFactor);
+        var annulus = PipelineAnnularFaceGeometry.Create(faceNormal,
+            new[] { Circle(faceCenter, faceAxis, 35.5), Circle(faceCenter, faceAxis, 32.5) });
+        Check(annulus.Center == faceCenter && annulus.InnerRadiusMm == 32.5 && annulus.OuterRadiusMm == 35.5,
+            "蝶阀候选端面中心和半径不正确");
+        var rotated = PipelineAnnularFaceGeometry.Create(new PipeDirection3D(0, 0, -3),
+            new[] { Circle(new PipePoint3D(5, 6, 7), new PipeDirection3D(0, 0, 2), 25),
+                Circle(new PipePoint3D(5, 6, 7), new PipeDirection3D(0, 0, -1), 30) });
+        Check(rotated.Center == new PipePoint3D(5, 6, 7) && rotated.Normal.Z == -1, "平移及旋转端面识别失败");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, 32.5) }), "缺少圆边必须拒绝");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, 32.5),
+            Circle(faceCenter, faceAxis, 35.5, 0.5) }), "圆弧不能当成完整圆");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, 32.5),
+            Circle(new PipePoint3D(23, 0.1, 0), faceAxis, 35.5) }), "不同心圆边必须拒绝");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, 32.5),
+            Circle(faceCenter, new PipeDirection3D(0, 1, 0), 35.5) }), "圆边方向错误必须拒绝");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, 32.5),
+            Circle(faceCenter, faceAxis, 32.5) }), "重合半径必须拒绝");
+        Reject(() => PipelineAnnularFaceGeometry.Create(new PipeDirection3D(0, 0, 0),
+            new[] { Circle(faceCenter, faceAxis, 32.5), Circle(faceCenter, faceAxis, 35.5) }), "零法向必须拒绝");
+        Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, double.NaN),
+            Circle(faceCenter, faceAxis, 35.5) }), "非有限半径必须拒绝");
+        _count += FaceComRegression.Run();
+        if (args.Length != 0) _count += PauseSnapshotRegression.Run(args[0]);
         Console.WriteLine("端点和手动坐标回归通过：" + _count + " 项。");
     }
 }

@@ -35,6 +35,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _undo;
         private readonly Button _edit;
         private readonly Button _manualPoint;
+        private readonly Button _pauseForFace;
+        private readonly Button _useFace;
         private readonly Button _locate;
         private readonly Button _complete;
         private readonly Button _resume;
@@ -124,6 +126,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _undo = AddButton(actions, "撤销最后点", (sender, args) => Undo());
             _edit = AddButton(actions, "编辑最后点", (sender, args) => Edit());
             _manualPoint = AddButton(actions, "手动添加坐标", (sender, args) => Execute("手动添加坐标", () => _session!.RequestManualPoint()));
+            _pauseForFace = AddButton(actions, "暂停并选择端面", (sender, args) => PauseForFace());
+            _useFace = AddButton(actions, "采用所选端面中心", (sender, args) => UseSelectedFace());
+            _useFace.IsEnabled = false;
             _locate = AddButton(actions, "定位最后点", (sender, args) => LocateLast());
             _complete = AddButton(actions, "完成点列", (sender, args) => Complete());
             _resume = AddButton(actions, "恢复选点", (sender, args) => Resume());
@@ -342,6 +347,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 next.Start();
                 _selecting = true;
                 _resume.IsEnabled = false;
+                _useFace.IsEnabled = false;
                 SetControlsEnabled(true);
                 ShowSelection(next.Points, next.WorkPlane);
                 _status.Text = "路线选点已恢复；已确认坐标和工作平面保持不变。";
@@ -360,7 +366,90 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     ReportError("恢复路线选点失败且清理未完成，请重试", new AggregateException(ex, cleanupError));
                     return;
                 }
-                ReportError("恢复路线选点失败，请结束原生命令并检查原文档后重试", ex);
+                ReportError("恢复路线选点失败，已确认坐标仍保留；请结束原生命令并检查原文档后重试", ex);
+            }
+        }
+
+        private void PauseForFace()
+        {
+            if (!_selecting || _session == null)
+            {
+                _status.Text = "路线选点未运行。";
+                SolidWorksFileLogger.Warning("端面选择未启动：路线选点未运行。");
+                return;
+            }
+            try
+            {
+                if (_document.GetType() != (int)swDocumentTypes_e.swDocPART)
+                {
+                    SolidWorksFileLogger.Warning("端面取点未启动：当前试验仅支持零件文档。");
+                    MessageBox.Show(this, "当前端面取点试验仅支持零件文档；装配体坐标转换尚未验证。自由选点仍可使用。",
+                        "端面取点", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+            }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                ReportError("检查端面取点文档失败，未主动结束路线选点", ex);
+                return;
+            }
+            Execute("暂停路线以选择端面", () =>
+            {
+                _session!.PauseForFaceSelection();
+                _selecting = false;
+                SetControlsEnabled(false);
+                StopKeyboardHook();
+                _suspendedSelection = _session.CopyPausedSelection()
+                    ?? throw new InvalidOperationException("路线暂停数据不可用。");
+                _resume.IsEnabled = true;
+                _useFace.IsEnabled = true;
+                _status.Text = "路线已暂停。请在零件中仅选择一个环形平面，然后点击“采用所选端面中心”；也可直接恢复选点。";
+                SolidWorksFileLogger.Info("路线已暂停，等待用户选择零件环形端面。");
+            });
+        }
+
+        private void UseSelectedFace()
+        {
+            try
+            {
+                if (_selecting || _suspendedSelection == null)
+                    throw new InvalidOperationException("请先暂停路线并选择端面。");
+                EnsureReadyToPick(_application, _document);
+                PipelineSelectedAnnularFace selected = PipelineSelectedAnnularFace.Read(_application, _document);
+                PipelineAnnularFaceGeometry geometry = selected.Geometry;
+                string text = "零件局部端面中心（mm）：" + Describe(geometry.Center) +
+                    "\n端面法向：" + DescribeDirection(geometry.Normal) +
+                    "\n圆边内径（mm）：" + (geometry.InnerRadiusMm * 2).ToString("G17", CultureInfo.InvariantCulture) +
+                    "；外径（mm）：" + (geometry.OuterRadiusMm * 2).ToString("G17", CultureInfo.InvariantCulture) +
+                    "\n\n这只是当前零件坐标的自由点快照，不会建立设备或管口关联，也不会读取 DN、PN、介质或创建配合。" +
+                    "\n请确认所选面确实是需要的管口；模型变化后坐标不会自动更新。是否采用？";
+                if (MessageBox.Show(this, text, "确认端面中心", MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                {
+                    SolidWorksFileLogger.Info("用户取消采用所选端面中心，路线保持暂停。");
+                    _status.Text = "已取消端面取点；可重新选择端面或恢复原路线。";
+                    return;
+                }
+                EnsureReadyToPick(_application, _document);
+                selected.Revalidate(_application, _document);
+                PipelineRouteSelectionSession updated = _suspendedSelection.CopySelecting();
+                if (!updated.TryAddPoint(geometry.Center, out string error))
+                {
+                    SolidWorksFileLogger.Warning("采用端面中心失败：" + error);
+                    _status.Text = error;
+                    MessageBox.Show(this, error, "端面取点", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                _suspendedSelection = updated;
+                ShowSelection(updated.Points, updated.WorkPlane);
+                _useFace.IsEnabled = false;
+                _status.Text = "端面中心已加入路线；正在恢复选点。";
+                SolidWorksFileLogger.Info("用户确认将零件端面中心作为自由坐标加入路线；未建立设备关联。");
+                Resume();
+            }
+            catch (Exception ex) when (IsOperationException(ex))
+            {
+                ReportError("读取端面中心失败，路线仍可恢复", ex);
             }
         }
 
@@ -943,7 +1032,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 if (paused)
                 {
-                    OnUnexpectedStop("检测到 SolidWorks 新命令，路线选点已暂停；请结束该命令后点击“恢复选点”。");
+                    OnUnexpectedStop(operation + "失败：" + ex.Message + "；请检查文档后点击“恢复选点”。");
                     return;
                 }
                 ReportError(operation + "失败，路线选点已停止", ex);
@@ -1040,6 +1129,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _undo.IsEnabled = enabled;
             _edit.IsEnabled = enabled;
             _manualPoint.IsEnabled = enabled;
+            _pauseForFace.IsEnabled = enabled;
             _locate.IsEnabled = enabled;
             _complete.IsEnabled = enabled;
         }
@@ -1063,6 +1153,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             "X=" + point.X.ToString("G17", CultureInfo.InvariantCulture) +
             "  Y=" + point.Y.ToString("G17", CultureInfo.InvariantCulture) +
             "  Z=" + point.Z.ToString("G17", CultureInfo.InvariantCulture);
+
+        private static string DescribeDirection(PipeDirection3D direction) =>
+            "X=" + direction.X.ToString("G17", CultureInfo.InvariantCulture) +
+            "  Y=" + direction.Y.ToString("G17", CultureInfo.InvariantCulture) +
+            "  Z=" + direction.Z.ToString("G17", CultureInfo.InvariantCulture);
 
         private static bool IsOperationException(Exception ex) =>
             ex is InvalidOperationException || ex is ArgumentException || ex is AggregateException ||

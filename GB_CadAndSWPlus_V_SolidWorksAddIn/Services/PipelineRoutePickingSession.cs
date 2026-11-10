@@ -255,6 +255,18 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             SolidWorksFileLogger.Info("已请求手动输入路线坐标。");
         }
 
+        /// <summary>保留草稿并释放鼠标监听，以便在 SolidWorks 中使用原生选择。</summary>
+        public void PauseForFaceSelection()
+        {
+            RequireUiThread();
+            // 即使活动文档检查失败，清理会话前也要保留已有路线。
+            if (!_disposed && _selection.Status == PipelineRouteSelectionStatus.Selecting)
+                _pausedSelection = _selection.CopySelecting();
+            RequireAvailable();
+            DisposeCore();
+            SolidWorksFileLogger.Info("已暂停路线拾点，准备使用 SolidWorks 原生端面选择。");
+        }
+
         /// <summary>完成点列并清理事件；若清理抛错，调用方须先重试释放，不能开始建模。</summary>
         public bool TryComplete(out PipeRoute? route, out string error)
         {
