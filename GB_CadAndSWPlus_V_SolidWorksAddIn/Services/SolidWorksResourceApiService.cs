@@ -75,6 +75,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         public Task<ElementListResponse> ListElementsByCategoryAsync(int categoryId, bool requireModelResource = false, CancellationToken cancellationToken = default(CancellationToken))
             => SendJsonAsync<ElementListResponse>(HttpMethod.Get, "api/elements?categoryId=" + categoryId + "&platform=SOLIDWORKS" + (requireModelResource ? "&requireResource=true" : string.Empty), null, cancellationToken);
 
+        /// <summary>按关键词只读查询共用构件定义，不推断当前模型与构件的关联。</summary>
+        public Task<ElementListResponse> SearchElementsAsync(string keyword, CancellationToken cancellationToken = default(CancellationToken))
+        {
+            if (string.IsNullOrWhiteSpace(keyword) || keyword.Trim().Length < 2 || keyword.Trim().Length > 100)
+                throw new ArgumentException("请输入 2 至 100 个字符的构件名称或编码。", nameof(keyword));
+            return SendJsonAsync<ElementListResponse>(HttpMethod.Get,
+                "api/elements?platform=SOLIDWORKS&keyword=" + Uri.EscapeDataString(keyword.Trim()), null, cancellationToken);
+        }
+
         /// <summary>在指定子分类下新增 CAD 与 SolidWorks 共用的统一构件定义。</summary>
         public Task<ElementResponse> CreateElementAsync(ElementRequest request, CancellationToken cancellationToken = default(CancellationToken))
             => SendJsonAsync<ElementResponse>(HttpMethod.Post, "api/elements", request, cancellationToken);

@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Models;
 using GB_CadAndSWPlus_V.SolidWorksAddIn.Services;
+using GB_CadAndSWPlus_V.Shared.Services;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 {
@@ -26,6 +27,10 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Func<string, string, bool> _confirmEndpointReferences;
         private readonly Dictionary<string, TextBox> _startReferences = new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, TextBox> _endReferences = new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _startReferenceSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _endReferenceSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TextBlock> _startSourceLabels = new Dictionary<string, TextBlock>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TextBlock> _endSourceLabels = new Dictionary<string, TextBlock>(StringComparer.OrdinalIgnoreCase);
         private bool _loadFailed;
 
         public IReadOnlyList<PipelinePropertiesFieldDefinition> Fields { get; }
@@ -254,21 +259,25 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var content = new StackPanel { Margin = new Thickness(8) };
             content.Children.Add(new TextBlock
             {
-                Text = "仅供手工参考，不表示已识别或连接设备管口，也不写入数据库。两端均可留空；请核对设备参数是否适用于管道。",
+                Text = "手工输入或手动选择数据库构件定义作为参考，不表示已识别或连接设备管口，也不写入数据库。两端均可留空；请核对参数及单位。",
                 Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap
             });
-            AddEndpointReferenceGroup(content, "起点", route.Points[0], _startReferences, references?.Start);
-            AddEndpointReferenceGroup(content, "终点", route.Points[route.Points.Count - 1], _endReferences, references?.End);
+            AddEndpointReferenceGroup(content, "起点", route.Points[0], _startReferences, references?.Start,
+                _startReferenceSources, _startSourceLabels, references?.StartSources);
+            AddEndpointReferenceGroup(content, "终点", route.Points[route.Points.Count - 1], _endReferences, references?.End,
+                _endReferenceSources, _endSourceLabels, references?.EndSources);
             return new Expander
             {
-                Header = "手动填写起终点参考参数（可选）",
+                Header = "起终点参考参数（可选）",
                 Content = content,
                 Margin = new Thickness(0, 0, 0, 8)
             };
         }
 
         private void AddEndpointReferenceGroup(Panel parent, string name, PipePoint3D point,
-            Dictionary<string, TextBox> editors, IReadOnlyDictionary<string, string>? values)
+            Dictionary<string, TextBox> editors, IReadOnlyDictionary<string, string>? values,
+            Dictionary<string, string> sources, Dictionary<string, TextBlock> sourceLabels,
+            IReadOnlyDictionary<string, string>? savedSources)
         {
             var panel = new StackPanel { Margin = new Thickness(4) };
             panel.Children.Add(new TextBlock
@@ -290,39 +299,121 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 editors.Add(item.Item1, input);
                 row.Children.Add(input);
                 panel.Children.Add(row);
+                var sourceLabel = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Brushes.DimGray, Margin = new Thickness(165, 0, 0, 0) };
+                sourceLabels.Add(item.Item1, sourceLabel);
+                if (!string.IsNullOrWhiteSpace(value) && savedSources != null &&
+                    savedSources.TryGetValue(item.Item1, out string savedSource) && !string.IsNullOrWhiteSpace(savedSource))
+                    sources[item.Item1] = savedSource;
+                sourceLabel.Text = sources.TryGetValue(item.Item1, out string origin) ? origin : "来源：手工输入或未填写";
+                string tag = item.Item1;
+                input.TextChanged += (sender, args) =>
+                {
+                    sources.Remove(tag);
+                    sourceLabels[tag].Text = "来源：手工输入或已修改";
+                };
+                panel.Children.Add(sourceLabel);
             }
+            var choose = new Button { Content = "查询数据库构件参考（" + name + "）", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 5, 0, 0) };
+            choose.Click += (sender, args) => ChooseDatabaseReferences(name, editors, sources, sourceLabels);
+            panel.Children.Add(choose);
             var apply = new Button { Content = "核对并采用" + name + "参考值", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 5, 0, 0) };
             apply.Click += (sender, args) => ApplyEndpointReferences(name, editors,
-                ReferenceEquals(editors, _startReferences) ? _endReferences : _startReferences);
+                ReferenceEquals(editors, _startReferences) ? _endReferences : _startReferences, sources);
             panel.Children.Add(apply);
-            parent.Children.Add(new GroupBox { Header = name + "手动参考", Content = panel, Margin = new Thickness(0, 6, 0, 0) });
+            parent.Children.Add(new GroupBox { Header = name + "参考（可留空）", Content = panel, Margin = new Thickness(0, 6, 0, 0) });
+        }
+
+        private void ChooseDatabaseReferences(string name, Dictionary<string, TextBox> editors,
+            Dictionary<string, string> sources, Dictionary<string, TextBlock> sourceLabels)
+        {
+            var session = new SharedLoginSessionStore().Load();
+            if (string.IsNullOrWhiteSpace(session.AccessToken) ||
+                (session.AccessTokenExpiresAtUtc.HasValue && session.AccessTokenExpiresAtUtc.Value <= DateTime.UtcNow))
+            {
+                SolidWorksFileLogger.Warning("数据库构件参考查询未启动：统一登录会话不存在或已过期。");
+                MessageBox.Show(this, "请先通过统一登录页面登录；离线时仍可手工填写或留空。", "数据库构件参考",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            Func<bool> sessionIsCurrent = () =>
+            {
+                var current = new SharedLoginSessionStore().Load();
+                return !string.IsNullOrWhiteSpace(current.AccessToken) &&
+                    (!current.AccessTokenExpiresAtUtc.HasValue || current.AccessTokenExpiresAtUtc.Value > DateTime.UtcNow) &&
+                    string.Equals(current.AccessToken, session.AccessToken, StringComparison.Ordinal) &&
+                    string.Equals(current.Username, session.Username, StringComparison.Ordinal) &&
+                    string.Equals(current.ServerHost, session.ServerHost, StringComparison.OrdinalIgnoreCase) &&
+                    current.ApiPort == session.ApiPort && current.AccessTokenExpiresAtUtc == session.AccessTokenExpiresAtUtc;
+            };
+            var source = new PipelineElementReferenceSource(new SolidWorksResourceApiService(session), sessionIsCurrent);
+            var window = new PipelineElementReferenceWindow(source) { Owner = this };
+            if (window.ShowDialog() != true || window.SelectedElement == null || window.SelectedCandidates == null) return;
+            var element = window.SelectedElement;
+            var candidates = window.SelectedCandidates;
+            var summary = new StringBuilder("仅从用户选择的统一构件定义读取，不是设备实例或管口关联，不写数据库。\n请逐项核对原属性、数值和单位；系统不会转换单位：\n");
+            summary.Append("\n构件：").Append(element.Label).Append("\n");
+            foreach (var pair in candidates)
+            {
+                string oldValue = editors[pair.Key].Text.Trim();
+                summary.Append("\n").Append(pair.Key).Append("：").Append(oldValue.Length == 0 ? "（空）" : oldValue)
+                    .Append(" → ").Append(pair.Value.Value).Append("\n来源字段：").Append(pair.Value.Label).Append("\n");
+            }
+            summary.Append("\n仅更新").Append(name).Append("参考值；管道属性仍需另行核对并采用。");
+            if (!_confirmEndpointReferences(summary.ToString(), "确认更新" + name + "参考值"))
+            {
+                SolidWorksFileLogger.Info("用户取消从数据库构件更新" + name + "参考值。");
+                return;
+            }
+            if (!sessionIsCurrent())
+            {
+                SolidWorksFileLogger.Warning("未更新数据库构件参考：确认时统一登录会话已失效或切换。");
+                MessageBox.Show(this, "统一登录会话已失效或切换，请重新查询；参考值未更改。", "数据库构件参考",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            foreach (var pair in candidates)
+            {
+                editors[pair.Key].Text = pair.Value.Value;
+                string origin = "来源：数据库统一构件 " + element.Label + "；字段 " + pair.Value.Label + "（本次快照）";
+                sources[pair.Key] = origin;
+                sourceLabels[pair.Key].Text = origin;
+            }
+            SolidWorksFileLogger.Info("用户确认从数据库构件更新" + name + "参考；构件ID=" + element.Id +
+                "；字段=" + string.Join("、", candidates.Keys) + "；未写入数据库。");
         }
 
         private void ApplyEndpointReferences(string name, Dictionary<string, TextBox> source,
-            Dictionary<string, TextBox> other)
+            Dictionary<string, TextBox> other, Dictionary<string, string> sources)
         {
             var editable = new HashSet<string>(Fields.Where(field => field.Editable).Select(field => field.Tag),
                 StringComparer.OrdinalIgnoreCase);
             var updates = PipelineEndpointReferencePlanner.Create(
                 ReadEndpointReferences(source), ReadEndpointReferences(other), ReadValues(), editable);
-            var summary = new StringBuilder("手工输入的参考值未经验证，不代表设备关联。请核对后确认：\n");
+            var summary = new StringBuilder("参考值未经验证，不代表设备关联。系统不转换或比较单位，相同数值也不能证明两端兼容；请核对后确认：\n");
+            var otherSources = ReferenceEquals(other, _startReferences) ? _startReferenceSources : _endReferenceSources;
             foreach (var update in updates)
             {
                 summary.Append("\n").Append(update.Tag).Append("：").Append(update.Current.Length == 0 ? "（空）" : update.Current)
                     .Append(" → ").Append(update.Value);
-                if (update.ConflictsWithOther)
-                    summary.Append("；另一端：").Append(update.Other).Append("（不一致）");
+                summary.Append("\n").Append(sources.TryGetValue(update.Tag, out string origin) ? origin : "来源：手工输入或已修改");
+                if (update.Other.Length != 0)
+                {
+                    summary.Append("\n另一端：").Append(update.Other);
+                    if (update.ConflictsWithOther) summary.Append("（不一致）");
+                    summary.Append("；").Append(otherSources.TryGetValue(update.Tag, out string otherOrigin)
+                        ? otherOrigin : "来源：手工输入或已修改");
+                }
             }
             if (updates.Count == 0)
             {
-                SolidWorksFileLogger.Warning("未采用" + name + "参考值：没有可用的手动输入或目标字段不可编辑。");
+                SolidWorksFileLogger.Warning("未采用" + name + "参考值：没有可用的参考值或目标字段不可编辑。");
                 MessageBox.Show(this, "没有可采用的参考值，或对应管道字段不可编辑。", "端点参考参数",
                     MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
             if (!_confirmEndpointReferences(summary.ToString(), "确认采用" + name + "参考值"))
             {
-                SolidWorksFileLogger.Info("用户取消采用" + name + "手动参考参数。");
+                SolidWorksFileLogger.Info("用户取消采用" + name + "参考参数。");
                 return;
             }
             foreach (var update in updates)
@@ -331,7 +422,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 if (editor is ComboBox combo) combo.Text = update.Value;
                 else ((TextBox)editor).Text = update.Value;
             }
-            SolidWorksFileLogger.Info("用户确认采用" + name + "手动参考参数；字段=" + string.Join("、", updates.Select(update => update.Tag)) + "。");
+            SolidWorksFileLogger.Info("用户确认采用" + name + "参考参数；字段=" + string.Join("、", updates.Select(update => update.Tag)) + "。");
         }
 
         private static Dictionary<string, string> ReadEndpointReferences(Dictionary<string, TextBox> editors)
@@ -396,7 +487,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             ConfirmedAttributes = values;
             if (_startReferences.Count != 0)
                 ConfirmedEndpointReferences = new PipelineEndpointReferences(
-                    ReadEndpointReferences(_startReferences), ReadEndpointReferences(_endReferences));
+                    ReadEndpointReferences(_startReferences), ReadEndpointReferences(_endReferences),
+                    _startReferenceSources, _endReferenceSources);
             SolidWorksFileLogger.Info("绘管属性确认通过；尚未保存，等待模型创建成功后由调用方处理。");
             DialogResult = true;
         }

@@ -126,15 +126,21 @@ internal static class Program
             .GetField("_endReferences", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(properties)!;
         pipeInputs = (Dictionary<string, Control>)editorsField.GetValue(properties)!;
         var apply = typeof(PipelinePropertiesWindow).GetMethod("ApplyEndpointReferences", BindingFlags.Instance | BindingFlags.NonPublic)!;
-        apply.Invoke(properties, new object[] { "起点", inputs, endInputs });
+        var sourceMap = (Dictionary<string, string>)typeof(PipelinePropertiesWindow)
+            .GetField("_startReferenceSources", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(properties)!;
+        apply.Invoke(properties, new object[] { "起点", inputs, endInputs, sourceMap });
         Check(prompt.Contains("DN50 → DN100") && prompt.Contains("DN80（不一致）"), "确认提示应显示旧值、建议值及两端冲突");
         Check(((TextBox)pipeInputs["DN"]).Text == "DN50", "拒绝采用参考时不能修改管道");
         accept = true;
-        apply.Invoke(properties, new object[] { "起点", inputs, endInputs });
+        apply.Invoke(properties, new object[] { "起点", inputs, endInputs, sourceMap });
         Check(((TextBox)pipeInputs["DN"]).Text == "DN100" && ((TextBox)pipeInputs["MEDIUM"]).Text == "水",
             "用户确认后应仅更新非空参考字段");
         Check(((TextBox)pipeInputs["PN"]).Text == string.Empty, "空参考不得覆盖目标字段");
         properties.Close();
+
+        _count += EndpointSourceRegression.Run();
+        _count += ElementReferenceSourceRegression.Run();
+        _count += ElementReferenceWindowRegression.Run();
 
         var faceCenter = new PipePoint3D(23, 0, 0);
         var faceNormal = new PipeDirection3D(1, 0, 0);

@@ -4,17 +4,22 @@ using System.Collections.ObjectModel;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Models
 {
-    /// <summary>仅为本次路线手工记录的参考值，不代表设备或管口关联。</summary>
+    /// <summary>仅为本次路线记录的参考值及其来源，不代表设备或管口关联。</summary>
     internal sealed class PipelineEndpointReferences
     {
-        public PipelineEndpointReferences(IDictionary<string, string> start, IDictionary<string, string> end)
+        public PipelineEndpointReferences(IDictionary<string, string> start, IDictionary<string, string> end,
+            IDictionary<string, string>? startSources = null, IDictionary<string, string>? endSources = null)
         {
             Start = new Dictionary<string, string>(start, StringComparer.OrdinalIgnoreCase);
             End = new Dictionary<string, string>(end, StringComparer.OrdinalIgnoreCase);
+            StartSources = new Dictionary<string, string>(startSources ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
+            EndSources = new Dictionary<string, string>(endSources ?? new Dictionary<string, string>(), StringComparer.OrdinalIgnoreCase);
         }
 
         public IReadOnlyDictionary<string, string> Start { get; }
         public IReadOnlyDictionary<string, string> End { get; }
+        public IReadOnlyDictionary<string, string> StartSources { get; }
+        public IReadOnlyDictionary<string, string> EndSources { get; }
     }
 
     internal sealed class PipelineEndpointReferenceChange

@@ -8,6 +8,7 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="System.Net.Http" />
     <Reference Include="SolidWorks.Interop.sldworks">
       <HintPath>D:\Program Files\SolidWorkS2022\SOLIDWORKS\api\redist\SolidWorks.Interop.sldworks.dll</HintPath>
     </Reference>
@@ -24,7 +25,9 @@
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Helpers\PipelineAnnularFaceGeometry.cs" Link="PipelineAnnularFaceGeometry.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePointConfirmWindow.cs" Link="PipelinePointConfirmWindow.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePropertiesWindow.cs" Link="PipelinePropertiesWindow.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelineElementReferenceWindow.cs" Link="PipelineElementReferenceWindow.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineSelectedAnnularFace.cs" Link="PipelineSelectedAnnularFace.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineElementReferenceSource.cs" Link="PipelineElementReferenceSource.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineAssemblyRootContext.cs" Link="PipelineAssemblyRootContext.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineAssemblyFaceContext.cs" Link="PipelineAssemblyFaceContext.cs" />
   </ItemGroup>
