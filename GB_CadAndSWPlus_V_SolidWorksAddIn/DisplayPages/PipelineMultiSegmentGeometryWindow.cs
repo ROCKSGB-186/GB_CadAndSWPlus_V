@@ -20,8 +20,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
     {
         // 保留统一开关，便于必要时同时禁用入口和处理器。
         private static readonly bool ExistingAssemblyTrialEnabled = true;
-        // 更多原有零件的试验先保持禁用，待离线验证后另行确认。
-        private static readonly bool ManyAssemblyTrialEnabled = false;
+        // 多零件试验已获用户确认启用，保留独立开关以便暂停。
+        private static readonly bool ManyAssemblyTrialEnabled = true;
         private readonly PipeRoute _route;
         private readonly IDictionary<string, string>? _attributes;
         private readonly Func<string, bool> _confirmApproximation;
@@ -120,7 +120,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _existingAssembly = new Button { Content = "双零件装配体多段试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _existingAssembly.Click += (sender, args) => AssembleIntoExisting(false);
             buttons.Children.Add(_existingAssembly);
-            _manyAssembly = new Button { Content = "多零件装配体多段试验（3至10个，筹备中）", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _manyAssembly = new Button { Content = "多零件装配体多段试验（3至10个）", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _manyAssembly.Click += (sender, args) => AssembleIntoExisting(true);
             buttons.Children.Add(_manyAssembly);
             _close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
