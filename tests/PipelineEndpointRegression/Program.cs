@@ -163,6 +163,7 @@ internal static class Program
         Reject(() => PipelineAnnularFaceGeometry.Create(faceNormal, new[] { Circle(faceCenter, faceAxis, double.NaN),
             Circle(faceCenter, faceAxis, 35.5) }), "非有限半径必须拒绝");
         _count += FaceComRegression.Run();
+        _count += AssemblyFaceContextRegression.Run();
         if (args.Length != 0) _count += PauseSnapshotRegression.Run(args[0]);
         Console.WriteLine("端点和手动坐标回归通过：" + _count + " 项。");
     }

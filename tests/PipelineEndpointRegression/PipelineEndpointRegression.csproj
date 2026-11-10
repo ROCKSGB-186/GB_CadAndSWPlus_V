@@ -25,5 +25,7 @@
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePointConfirmWindow.cs" Link="PipelinePointConfirmWindow.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePropertiesWindow.cs" Link="PipelinePropertiesWindow.cs" />
     <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineSelectedAnnularFace.cs" Link="PipelineSelectedAnnularFace.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineAssemblyRootContext.cs" Link="PipelineAssemblyRootContext.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineAssemblyFaceContext.cs" Link="PipelineAssemblyFaceContext.cs" />
   </ItemGroup>
 </Project>

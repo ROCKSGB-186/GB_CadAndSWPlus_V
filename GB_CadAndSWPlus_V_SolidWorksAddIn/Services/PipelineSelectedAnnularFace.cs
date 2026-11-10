@@ -7,36 +7,49 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 {
-    /// <summary>只读捕获零件文档的单个环形面；不创建连接、配合或实例身份。</summary>
+    /// <summary>只读捕获零件或受限装配体中的单个环形面；不创建连接或配合。</summary>
     internal sealed class PipelineSelectedAnnularFace
     {
         private readonly Face2 _face;
         private readonly string _configuration;
+        private readonly PipelineAssemblyFaceContext? _assemblyContext;
 
-        private PipelineSelectedAnnularFace(Face2 face, string configuration, PipelineAnnularFaceGeometry geometry)
+        private PipelineSelectedAnnularFace(Face2 face, string configuration, PipelineAnnularFaceGeometry geometry,
+            PipelineAssemblyFaceContext? assemblyContext)
         {
             _face = face;
             _configuration = configuration;
             Geometry = geometry;
+            _assemblyContext = assemblyContext;
         }
 
         public PipelineAnnularFaceGeometry Geometry { get; }
+        public bool IsAssembly => _assemblyContext != null;
+        public string? ComponentName => _assemblyContext?.ComponentName;
 
         public static PipelineSelectedAnnularFace Read(SldWorks application, ModelDoc2 document)
         {
-            RequirePart(application, document);
+            int documentType = RequireDocument(application, document);
             var configuration = document.ConfigurationManager?.ActiveConfiguration
-                ?? throw new InvalidOperationException("无法读取当前零件配置。");
+                ?? throw new InvalidOperationException("无法读取当前文档配置。");
             string configurationName = configuration.Name;
             if (string.IsNullOrWhiteSpace(configurationName))
-                throw new InvalidOperationException("当前零件配置名称无效。");
+                throw new InvalidOperationException("当前文档配置名称无效。");
             var selection = document.SelectionManager as SelectionMgr
                 ?? throw new InvalidOperationException("无法读取 SolidWorks 当前选择。");
             if (selection.GetSelectedObjectCount2(-1) != 1 ||
                 selection.GetSelectedObjectType3(1, -1) != (int)swSelectType_e.swSelFACES)
-                throw new InvalidOperationException("请在零件中仅选择一个环形平面，再读取端面。");
+                throw new InvalidOperationException("请仅选择一个环形平面，再读取端面。");
             var face = selection.GetSelectedObject6(1, -1) as Face2
                 ?? throw new InvalidOperationException("无法读取所选端面。");
+            PipelineAssemblyFaceContext? assemblyContext = null;
+            AssemblyDoc? assembly = null;
+            if (documentType == (int)swDocumentTypes_e.swDocASSEMBLY)
+            {
+                assembly = document as AssemblyDoc ??
+                    throw new InvalidOperationException("无法读取装配体接口。");
+                assemblyContext = PipelineAssemblyFaceContext.Capture(application, document, assembly, selection);
+            }
             var surface = face.GetSurface() as Surface;
             if (surface == null || !surface.IsPlane())
                 throw new InvalidOperationException("所选面不是可读取的平面。");
@@ -64,15 +77,32 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     new PipeDirection3D(parameters[3], parameters[4], parameters[5]),
                     parameters[6] * 1000, length));
             }
-            var geometry = PipelineAnnularFaceGeometry.Create(
-                new PipeDirection3D(normal[0], normal[1], normal[2]), boundaries);
-            RequirePart(application, document);
+            var localNormal = new PipeDirection3D(normal[0], normal[1], normal[2]);
+            var geometry = PipelineAnnularFaceGeometry.Create(localNormal, boundaries);
+            if (assemblyContext != null)
+            {
+                var transformed = new List<PipelineCircularBoundary>();
+                foreach (PipelineCircularBoundary boundary in boundaries)
+                    transformed.Add(new PipelineCircularBoundary(
+                        assemblyContext.TransformPoint(boundary.Center),
+                        assemblyContext.TransformDirection(boundary.Axis),
+                        boundary.RadiusMm, boundary.LengthMm));
+                geometry = PipelineAnnularFaceGeometry.Create(assemblyContext.TransformDirection(localNormal), transformed);
+            }
+            if (RequireDocument(application, document) != documentType)
+                throw new InvalidOperationException("读取期间文档类型发生变化。");
             if (!string.Equals(document.ConfigurationManager?.ActiveConfiguration?.Name, configurationName, StringComparison.Ordinal) ||
                 selection.GetSelectedObjectCount2(-1) != 1 ||
+                selection.GetSelectedObjectType3(1, -1) != (int)swSelectType_e.swSelFACES ||
                 application.IsSame(selection.GetSelectedObject6(1, -1), face) != (int)swObjectEquality.swObjectSame)
                 throw new InvalidOperationException("读取期间配置或选择发生变化，请重新选择。");
-            SolidWorksFileLogger.Info("已只读检查零件环形端面；坐标单位=毫米；未建立管口关联。");
-            return new PipelineSelectedAnnularFace(face, configurationName, geometry);
+            if (assemblyContext != null)
+                assemblyContext.VerifySame(application, PipelineAssemblyFaceContext.Capture(application, document, assembly!, selection));
+            SolidWorksFileLogger.Info(assemblyContext == null
+                ? "已只读检查零件环形端面；坐标单位=毫米；未建立管口关联。"
+                : "已只读检查装配体根级组件环形端面；组件=" + assemblyContext.ComponentName +
+                    "；坐标单位=毫米；未建立管口关联。");
+            return new PipelineSelectedAnnularFace(face, configurationName, geometry, assemblyContext);
         }
 
         public void Revalidate(SldWorks application, ModelDoc2 document)
@@ -89,20 +119,26 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 !Near(Geometry.InnerRadiusMm, current.Geometry.InnerRadiusMm) ||
                 !Near(Geometry.OuterRadiusMm, current.Geometry.OuterRadiusMm))
                 throw new InvalidOperationException("确认期间端面、配置或几何已变化，请重新选择。");
+            if ((_assemblyContext == null) != (current._assemblyContext == null))
+                throw new InvalidOperationException("确认期间端面所属文档类型已变化。");
+            if (_assemblyContext != null)
+                _assemblyContext.VerifySame(application, current._assemblyContext!);
         }
 
         private static bool Finite(double value) => !double.IsNaN(value) && !double.IsInfinity(value);
         private static bool Near(double a, double b) => Finite(a) && Finite(b) && Math.Abs(a - b) <= 1e-8;
 
-        private static void RequirePart(SldWorks application, ModelDoc2 document)
+        private static int RequireDocument(SldWorks application, ModelDoc2 document)
         {
             if (application == null) throw new ArgumentNullException(nameof(application));
             if (document == null) throw new ArgumentNullException(nameof(document));
             var active = application.ActiveDoc as ModelDoc2;
             if (active == null || application.IsSame(active, document) != (int)swObjectEquality.swObjectSame)
-                throw new InvalidOperationException("活动文档已变化，请切回开始绘管时的零件。");
-            if (document.GetType() != (int)swDocumentTypes_e.swDocPART)
-                throw new InvalidOperationException("当前端面取点试验仅支持零件文档；装配体坐标转换尚未验证。");
+                throw new InvalidOperationException("活动文档已变化，请切回开始绘管时的文档。");
+            int type = document.GetType();
+            if (type != (int)swDocumentTypes_e.swDocPART && type != (int)swDocumentTypes_e.swDocASSEMBLY)
+                throw new InvalidOperationException("端面取点仅支持零件或受限装配体文档。");
+            return type;
         }
     }
 }

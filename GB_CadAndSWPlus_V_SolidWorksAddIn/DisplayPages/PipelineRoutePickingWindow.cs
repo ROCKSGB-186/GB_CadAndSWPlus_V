@@ -380,10 +380,11 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
             try
             {
-                if (_document.GetType() != (int)swDocumentTypes_e.swDocPART)
+                int type = _document.GetType();
+                if (type != (int)swDocumentTypes_e.swDocPART && type != (int)swDocumentTypes_e.swDocASSEMBLY)
                 {
-                    SolidWorksFileLogger.Warning("端面取点未启动：当前试验仅支持零件文档。");
-                    MessageBox.Show(this, "当前端面取点试验仅支持零件文档；装配体坐标转换尚未验证。自由选点仍可使用。",
+                    SolidWorksFileLogger.Warning("端面取点未启动：当前文档不是零件或装配体。");
+                    MessageBox.Show(this, "端面取点试验仅支持零件或受限装配体文档。自由选点仍可使用。",
                         "端面取点", MessageBoxButton.OK, MessageBoxImage.Information);
                     return;
                 }
@@ -403,8 +404,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     ?? throw new InvalidOperationException("路线暂停数据不可用。");
                 _resume.IsEnabled = true;
                 _useFace.IsEnabled = true;
-                _status.Text = "路线已暂停。请在零件中仅选择一个环形平面，然后点击“采用所选端面中心”；也可直接恢复选点。";
-                SolidWorksFileLogger.Info("路线已暂停，等待用户选择零件环形端面。");
+                _status.Text = "路线已暂停。请仅选择一个环形平面，然后点击“采用所选端面中心”；装配体仅支持根级解析零件。";
+                SolidWorksFileLogger.Info("路线已暂停，等待用户选择零件或装配体根级组件的环形端面。");
             });
         }
 
@@ -417,11 +418,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 EnsureReadyToPick(_application, _document);
                 PipelineSelectedAnnularFace selected = PipelineSelectedAnnularFace.Read(_application, _document);
                 PipelineAnnularFaceGeometry geometry = selected.Geometry;
-                string text = "零件局部端面中心（mm）：" + Describe(geometry.Center) +
+                string text = (selected.IsAssembly
+                    ? "装配体根坐标端面中心（mm）：" + Describe(geometry.Center) +
+                        "\n所选根级组件：" + selected.ComponentName
+                    : "零件局部端面中心（mm）：" + Describe(geometry.Center)) +
                     "\n端面法向：" + DescribeDirection(geometry.Normal) +
                     "\n圆边内径（mm）：" + (geometry.InnerRadiusMm * 2).ToString("G17", CultureInfo.InvariantCulture) +
                     "；外径（mm）：" + (geometry.OuterRadiusMm * 2).ToString("G17", CultureInfo.InvariantCulture) +
-                    "\n\n这只是当前零件坐标的自由点快照，不会建立设备或管口关联，也不会读取 DN、PN、介质或创建配合。" +
+                    "\n\n这只是当前文档坐标的自由点快照，不会建立设备或管口关联，也不会读取 DN、PN、介质或创建配合。" +
                     "\n请确认所选面确实是需要的管口；模型变化后坐标不会自动更新。是否采用？";
                 if (MessageBox.Show(this, text, "确认端面中心", MessageBoxButton.YesNo,
                     MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
@@ -444,7 +448,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 ShowSelection(updated.Points, updated.WorkPlane);
                 _useFace.IsEnabled = false;
                 _status.Text = "端面中心已加入路线；正在恢复选点。";
-                SolidWorksFileLogger.Info("用户确认将零件端面中心作为自由坐标加入路线；未建立设备关联。");
+                SolidWorksFileLogger.Info(selected.IsAssembly
+                    ? "用户确认将装配体根级组件端面中心作为自由坐标加入路线；未建立设备关联。"
+                    : "用户确认将零件端面中心作为自由坐标加入路线；未建立设备关联。");
                 Resume();
             }
             catch (Exception ex) when (IsOperationException(ex))
