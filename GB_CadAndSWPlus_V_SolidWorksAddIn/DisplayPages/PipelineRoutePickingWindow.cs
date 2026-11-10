@@ -559,7 +559,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 SolidWorksFileLogger.Info("打开多段管道几何试算；独立零件试验需另行确认。");
                 new PipelineMultiSegmentGeometryWindow(_completedRoute, _confirmedModelAttributes,
-                    _application, _document, new WindowInteropHelper(this).Owner) { Owner = this }.ShowDialog();
+                    _application, _document, new WindowInteropHelper(this).Owner, _assemblyRouteGuard,
+                    () => !_insertionAttempted, () => _insertionAttempted = true) { Owner = this }.ShowDialog();
             }
             catch (Exception ex) when (IsOperationException(ex))
             {

@@ -246,7 +246,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private static bool Same(SldWorks app, object first, object second) =>
             app.IsSame(first, second) == (int)swObjectEquality.swObjectSame;
 
-        private static bool IsExactIdentity(MathTransform? transform)
+        internal static bool IsExactIdentity(MathTransform? transform)
         {
             if (!(transform?.ArrayData is Array values) || values.Rank != 1 || values.Length != 16)
                 throw new InvalidOperationException("无法确认组件的精确单位变换。");
@@ -262,7 +262,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return identity;
         }
 
-        private static double[] SolidBodyCenterMeters(PartDoc part)
+        internal static double[] SolidBodyCenterMeters(PartDoc part)
         {
             object bodies = part.GetBodies2((int)swBodyType_e.swSolidBody, false);
             if (!(bodies is Array array) || array.Rank != 1 || array.Length != 1 ||

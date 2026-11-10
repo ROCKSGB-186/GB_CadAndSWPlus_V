@@ -18,6 +18,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
     /// <summary>多点路线几何试算及独立零件试验。</summary>
     internal sealed class PipelineMultiSegmentGeometryWindow : Window
     {
+        // 离线准备阶段保持双重阻断，实机试验须另行确认。
+        private static readonly bool ExistingAssemblyTrialEnabled = false;
         private readonly PipeRoute _route;
         private readonly IDictionary<string, string>? _attributes;
         private readonly Func<string, bool> _confirmApproximation;
@@ -27,10 +29,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _build;
         private readonly Button _save;
         private readonly Button _assembly;
+        private readonly Button _existingAssembly;
         private readonly Button _close;
         private readonly SldWorks? _application;
         private readonly ModelDoc2? _sourceDocument;
         private readonly IntPtr _mainWindow;
+        private readonly PipelineAssemblyRouteGuard? _routeGuard;
+        private readonly Func<bool>? _canAttemptInsertion;
+        private readonly Action? _markInsertionAttempted;
         private bool _building;
 
         internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes)
@@ -40,15 +46,26 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
 
         internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
             SldWorks application, ModelDoc2 sourceDocument, IntPtr mainWindow)
+            : this(route, attributes, application, sourceDocument, mainWindow, null, null, null)
+        {
+        }
+
+        internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
+            SldWorks application, ModelDoc2 sourceDocument, IntPtr mainWindow, PipelineAssemblyRouteGuard? routeGuard,
+            Func<bool>? canAttemptInsertion, Action? markInsertionAttempted)
             : this(route, attributes, null)
         {
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _sourceDocument = sourceDocument ?? throw new ArgumentNullException(nameof(sourceDocument));
             if (mainWindow == IntPtr.Zero) throw new ArgumentException("SolidWorks 主窗口句柄无效。", nameof(mainWindow));
             _mainWindow = mainWindow;
+            _routeGuard = routeGuard;
+            _canAttemptInsertion = canAttemptInsertion;
+            _markInsertionAttempted = markInsertionAttempted;
             _build.IsEnabled = true;
             _save.IsEnabled = true;
             _assembly.IsEnabled = true;
+            _existingAssembly.IsEnabled = CanAttemptExistingAssembly();
         }
 
         internal PipelineMultiSegmentGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -96,6 +113,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _assembly = new Button { Content = "多段空装配体试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _assembly.Click += (sender, args) => AssemblePieces();
             buttons.Children.Add(_assembly);
+            _existingAssembly = new Button { Content = "双零件装配体多段试验（筹备中）", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _existingAssembly.Click += (sender, args) => AssembleIntoExisting();
+            buttons.Children.Add(_existingAssembly);
             _close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             _close.Click += (sender, args) => Close();
             buttons.Children.Add(_close);
@@ -451,6 +471,108 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             finally { SetTrialRunning(false); }
         }
 
+        private bool CanAttemptExistingAssembly()
+        {
+            return ExistingAssemblyTrialEnabled && _application != null && _sourceDocument != null && _routeGuard != null &&
+                _routeGuard.IsValid && _canAttemptInsertion != null && _canAttemptInsertion() &&
+                _markInsertionAttempted != null;
+        }
+
+        private void AssembleIntoExisting()
+        {
+            if (_building || !CanAttemptExistingAssembly())
+            {
+                ShowError("当前路线的装配体上下文不可用或已尝试插入，请重新选点。");
+                return;
+            }
+            if (!TryCreatePlan(true, out PipelineMultiSegmentPlan? plan, out _)) return;
+            SetTrialRunning(true);
+            IReadOnlyList<string>? savedPaths = null;
+            try
+            {
+                RequireSourceDocument();
+                PipelineRoutePickingWindow.EnsureReadyToPick(_application!, _sourceDocument!);
+                _routeGuard!.Observe();
+                string? configuration = _routeGuard.Configuration;
+                if (!_routeGuard.IsValid || configuration == null || string.IsNullOrWhiteSpace(configuration))
+                    throw new InvalidOperationException("无法确认拾点始终位于同一装配体根级及配置，请重新选点。");
+                var baseline = PipelineStraightAssemblyTrial.CaptureMultipleComponentTarget(
+                    _application!, _sourceDocument!, configuration, _mainWindow);
+                string title = PipelineStraightAssemblyTrial.ValidateTarget(
+                    _application!, _sourceDocument!, configuration, _mainWindow, baseline);
+                string? template = ChoosePartTemplate();
+                if (template == null)
+                {
+                    _result.Text = "已取消选择零件模板，未创建或保存零件。";
+                    SolidWorksFileLogger.Info("用户取消双零件装配体多段试验的零件模板选择。");
+                    return;
+                }
+                string? folder = ChooseEmptyTestFolder();
+                if (folder == null)
+                {
+                    _result.Text = "已取消选择测试文件夹，未创建或保存零件。";
+                    SolidWorksFileLogger.Info("用户取消双零件装配体多段试验的文件夹选择。");
+                    return;
+                }
+                using (PipelineMultiPieceSaveConfirmation confirmation =
+                    PipelineMultiPieceSaveTrial.PreparePaths(_application!, _mainWindow, folder, plan!))
+                {
+                    IReadOnlyList<string> paths = confirmation.Paths;
+                    if (MessageBox.Show(this, "仅用于您专门新建的未保存测试装配体；必须恰有两个已保存、固定、无配合的根级测试零件，严禁用于正式工程。\n" +
+                        "拾点后请勿移动或修改已有组件；本试验只能检查开始时捕获的基线，无法证明拾点后至捕获前未发生变化。\n" +
+                        "将重新创建并保存 " + paths.Count + " 个独立测试零件：\n" + string.Join("\n", paths) +
+                        "\n随后向原测试装配体逐件插入；必要时只调整新增组件的位置，新组件应保持浮动。不会自动保存、重建、添加配合或写入数据库，也不检查连接及干涉。\n" +
+                        "试验期间请勿让其他程序或人员访问或更改文件及目录；检查不是事务，不能防止所有并发变化。失败或异常退出可能留下文件、文档或组件，不自动删除、关闭或回滚。\n" +
+                        "本次路线一旦开始创建零件将锁定重复插入；是否继续？",
+                        "双零件装配体多段试验", MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                        MessageBoxResult.No) != MessageBoxResult.Yes)
+                    {
+                        _result.Text = "已取消双零件装配体多段试验，未创建模型或保存零件文件。";
+                        SolidWorksFileLogger.Info("用户取消双零件装配体多段试验。");
+                        return;
+                    }
+                    RequireSourceDocument();
+                    PipelineRoutePickingWindow.EnsureReadyToPick(_application!, _sourceDocument!);
+                    _routeGuard.Observe();
+                    if (!CanAttemptExistingAssembly() ||
+                        !string.Equals(_routeGuard.Configuration, configuration, StringComparison.OrdinalIgnoreCase) ||
+                        !string.Equals(PipelineStraightAssemblyTrial.ValidateTarget(
+                            _application!, _sourceDocument!, configuration, _mainWindow, baseline), title, StringComparison.Ordinal))
+                        throw new InvalidOperationException("路线或目标装配体上下文已变化，未创建零件。");
+
+                    // 创建开始即锁定本次路线，避免失败或未知残留后重复插入。
+                    _markInsertionAttempted!();
+                    PipelineMultiPieceAssemblyTrial.WithFreshSave(() =>
+                    {
+                        PipelineMultiPieceSavedResult saved = PipelineMultiPieceSaveTrial.BuildAndSave(
+                            _application!, _sourceDocument!, _mainWindow, template, plan!, confirmation);
+                        savedPaths = paths;
+                        PipelineMultiPieceExistingAssemblyTrial.Build(_application!, _sourceDocument!, _mainWindow,
+                            title, configuration, baseline, saved);
+                        return 0;
+                    });
+                    _result.Text = "多段零件已插入双零件测试装配体；未自动保存、重建、添加配合或检查连接及干涉。";
+                    MessageBox.Show(this, _result.Text + "\n零件文件（按路线顺序）：\n" + string.Join("\n", paths) +
+                        "\n新组件保持浮动；请检查原有组件和新增组件。", "双零件装配体多段试验",
+                        MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch (Exception ex) when (ex is PipelineMultiPieceSaveTrialException ||
+                ex is PipelineMultiPieceExistingAssemblyTrialException || ex is InvalidOperationException ||
+                ex is ArgumentException || ex is ArithmeticException || ex is NotSupportedException ||
+                ex is System.Runtime.InteropServices.COMException || ex is System.Runtime.InteropServices.InvalidComObjectException ||
+                ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("双零件装配体多段试验未完成；异常类型=" + ex.GetType().Name + "；未自动回滚。");
+                _result.Text = "双零件装配体多段试验未完成：" + ex.Message;
+                string state = savedPaths == null ? "\n请检查是否有文件或文档残留。" :
+                    "\n零件此前已保存到：\n" + string.Join("\n", savedPaths);
+                MessageBox.Show(this, _result.Text + state + "\n未自动删除、关闭或回滚。",
+                    "双零件装配体多段试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally { SetTrialRunning(false); }
+        }
+
         private string? ChooseAssemblyTemplate()
         {
             string template = _application!.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplateAssembly);
@@ -503,6 +625,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _build.IsEnabled = !running && _application != null && _sourceDocument != null;
             _save.IsEnabled = !running && _application != null && _sourceDocument != null;
             _assembly.IsEnabled = !running && _application != null && _sourceDocument != null;
+            _existingAssembly.IsEnabled = !running && CanAttemptExistingAssembly();
             _close.IsEnabled = !running;
         }
 

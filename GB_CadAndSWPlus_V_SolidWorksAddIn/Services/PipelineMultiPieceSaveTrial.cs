@@ -86,12 +86,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         internal static void InvalidatePending() { pending = null; }
 
         // 保存结果只允许在原 UI 回调、原线程、原会话中用于一次装配尝试。
-        internal void Consume(SldWorks currentApp, ModelDoc2 currentSource, IntPtr currentWindow)
+        internal void Consume(SldWorks currentApp, ModelDoc2 currentSource, IntPtr currentWindow, bool requireScope = false)
         {
             if (System.Threading.Interlocked.Exchange(ref consumed, 1) != 0)
                 throw new InvalidOperationException("保存结果已经用于装配尝试，不能重复使用。");
             if (thread != System.Threading.Thread.CurrentThread.ManagedThreadId || window != currentWindow ||
                 !ReferenceEquals(app, currentApp) || !ReferenceEquals(pending, this) ||
+                (requireScope && scope == null) ||
                 (scope != null && !ReferenceEquals(scope, PipelineMultiPieceAssemblyTrial.CurrentScope)))
                 throw new InvalidOperationException("保存结果已过期，或不属于当前线程、窗口及 SolidWorks 会话。");
             pending = null;

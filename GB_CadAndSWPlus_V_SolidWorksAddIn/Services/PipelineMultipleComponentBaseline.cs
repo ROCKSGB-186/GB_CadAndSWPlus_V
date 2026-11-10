@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
@@ -91,22 +92,33 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public void Verify(SldWorks app, AssemblyDoc assembly, ModelDoc2 assemblyDocument, Component2? addedComponent)
         {
+            VerifyAddedComponents(app, assembly, assemblyDocument,
+                addedComponent == null ? Array.Empty<Component2>() : new[] { addedComponent });
+        }
+
+        internal void VerifyAddedComponents(SldWorks app, AssemblyDoc assembly, ModelDoc2 assemblyDocument,
+            IReadOnlyList<Component2> addedComponents)
+        {
             try
             {
                 RequireArguments(app, assembly, assemblyDocument);
                 RequireAssemblyIdentity(app, assembly, assemblyDocument, _assemblyDocument);
                 if (!string.Equals(AssemblyConfiguration(assemblyDocument), _assemblyConfiguration, StringComparison.Ordinal))
                     throw new InvalidOperationException("装配体活动配置已变化。");
-                Component2[] expected = addedComponent == null
-                    ? new[] { _originals[0].Component, _originals[1].Component }
-                    : new[] { _originals[0].Component, _originals[1].Component, addedComponent };
+                if (addedComponents == null) throw new ArgumentNullException(nameof(addedComponents));
+                var expected = new Component2[_originals.Length + addedComponents.Count];
+                for (int i = 0; i < _originals.Length; i++)
+                    expected[i] = _originals[i].Component;
+                for (int i = 0; i < addedComponents.Count; i++)
+                    expected[_originals.Length + i] = addedComponents[i] ??
+                        throw new InvalidOperationException("新增组件身份不可用。");
                 RequireDistinct(app, expected);
                 Component2[] roots = ReadComponents(assembly, expected.Length, out Array all);
                 // 两个枚举分别与基线身份做一对一匹配，不依赖顺序或零件文件路径。
                 Component2[] matched = MatchComponents(app, roots, expected);
                 MatchComponents(app, all, expected);
-                if (addedComponent != null)
-                    RequireAddedPart(matched[2]);
+                for (int i = _originals.Length; i < matched.Length; i++)
+                    RequireAddedPart(matched[i]);
                 RequireNoMates(assemblyDocument, matched);
                 for (int i = 0; i < _originals.Length; i++)
                     _originals[i].Verify(app, matched[i]);
