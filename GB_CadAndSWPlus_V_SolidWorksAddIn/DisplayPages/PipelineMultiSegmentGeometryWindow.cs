@@ -91,7 +91,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var heading = new StackPanel();
             heading.Children.Add(new TextBlock
             {
-                Text = "几何试算不创建模型；独立零件和新建空装配体试验需另行确认。保存或装配试验会重新新建零件，不修改以前的测试文件。统一使用本次确认的管径、壁厚和输入半径，近似路线仅供预览，不支持建模。不检查整体自交、干涉或工程规范。",
+                Text = "几何试算不创建模型；独立零件和装配试验需另行确认。保存或装配试验会重新新建零件，不修改以前的测试文件。统一使用本次确认的管径、壁厚和输入半径。自身碰撞预检采用保守的理论包络，可能误报，不检查已有设备、实际实体、装配干涉或工程规范。近似路线仅供预览，不支持建模。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
@@ -170,7 +170,23 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                         result.AppendLine("圆心：" + Describe(elbow.Center));
                     }
                 }
-                result.AppendLine("未生成模型；尚未检查整体自交、干涉、标准件选型或工程规范。");
+                if (plan.ApproximatePointNumbers.Count > 0)
+                    result.AppendLine("近似路线未进行建模用自身碰撞预检，不能用于建模。");
+                else
+                {
+                    try
+                    {
+                        PipelineRouteSelfCollision.Validate(plan);
+                        result.AppendLine("理论路线自身碰撞保守预检通过；相邻接头按理想相切处理，未检查其实际实体。");
+                        SolidWorksFileLogger.Info("多段路线自身碰撞保守预检通过；相邻接头按理想相切处理，未检查实际实体或装配干涉。");
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is ArithmeticException)
+                    {
+                        result.AppendLine("自身碰撞预检未通过，不能建模：" + ex.Message);
+                        SolidWorksFileLogger.Warning("多段路线自身碰撞预检未通过：" + ex.Message);
+                    }
+                }
+                result.AppendLine("未生成模型；未检查已有设备、实际实体、装配干涉、标准件选型或工程规范。");
                 _result.Text = result.ToString();
                 SolidWorksFileLogger.Info("多段管道几何试算完成；直管数=" + plan.Straights.Count +
                     "；弯头数=" + plan.Elbows.Count + "；未修改模型或保存文件。");
@@ -226,6 +242,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     SolidWorksFileLogger.Info("用户确认多段路线近似几何预览；最大偏移=" +
                         Format(plan.MaximumApproximationMm) + " mm；原始路线未改变。");
                 }
+                if (forBuild)
+                    PipelineRouteSelfCollision.Validate(plan);
                 return true;
             }
             catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is ArithmeticException)

@@ -156,6 +156,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     plan.Straights[i + 1].Points[0] != elbow.Elbow.ExitTangent)
                     throw new InvalidOperationException("弯头与相邻直管或方案尺寸不一致。");
             }
+            // 所有多段建模与保存入口共用此预检，无法判定时不得创建零件。
+            reportStage("检查路线自身碰撞风险");
+            PipelineRouteSelfCollision.Validate(plan);
             return template;
         }
 

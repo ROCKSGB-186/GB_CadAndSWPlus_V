@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Numerics" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Models\PipeRouteModels.cs" Link="PipeRouteModels.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Helpers\PipelineElbowGeometry.cs" Link="PipelineElbowGeometry.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Helpers\PipelineElbowBuildGeometry.cs" Link="PipelineElbowBuildGeometry.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineThreePiecePlan.cs" Link="PipelineThreePiecePlan.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineMultiSegmentPlan.cs" Link="PipelineMultiSegmentPlan.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Services\PipelineRouteSelfCollision.cs" Link="PipelineRouteSelfCollision.cs" />
+  </ItemGroup>
+</Project>
