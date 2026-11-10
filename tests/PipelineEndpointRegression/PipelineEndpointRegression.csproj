@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Models\PipeRouteModels.cs" Link="PipeRouteModels.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Models\PipelineEndpointReferences.cs" Link="PipelineEndpointReferences.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Models\PipelinePropertiesFieldDefinition.cs" Link="PipelinePropertiesFieldDefinition.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Models\PipelineRouteSelectionSession.cs" Link="PipelineRouteSelectionSession.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\Helpers\PipeRouteMath.cs" Link="PipeRouteMath.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePointConfirmWindow.cs" Link="PipelinePointConfirmWindow.cs" />
+    <Compile Include="..\..\GB_CadAndSWPlus_V_SolidWorksAddIn\DisplayPages\PipelinePropertiesWindow.cs" Link="PipelinePropertiesWindow.cs" />
+  </ItemGroup>
+</Project>

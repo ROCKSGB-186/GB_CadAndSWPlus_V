@@ -34,6 +34,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _applyPlane;
         private readonly Button _undo;
         private readonly Button _edit;
+        private readonly Button _manualPoint;
         private readonly Button _locate;
         private readonly Button _complete;
         private readonly Button _resume;
@@ -59,6 +60,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private PipeRoute? _completedRoute;
         private IDictionary<string, string>? _confirmedAttributes;
         private IDictionary<string, string>? _confirmedModelAttributes;
+        private PipelineEndpointReferences? _confirmedEndpointReferences;
         private CancellationTokenSource? _catalogCancellation;
 
         public PipelineRoutePickingWindow(SldWorks application, ModelDoc2 document, IntPtr owner)
@@ -121,6 +123,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var actions = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
             _undo = AddButton(actions, "撤销最后点", (sender, args) => Undo());
             _edit = AddButton(actions, "编辑最后点", (sender, args) => Edit());
+            _manualPoint = AddButton(actions, "手动添加坐标", (sender, args) => Execute("手动添加坐标", () => _session!.RequestManualPoint()));
             _locate = AddButton(actions, "定位最后点", (sender, args) => LocateLast());
             _complete = AddButton(actions, "完成点列", (sender, args) => Complete());
             _resume = AddButton(actions, "恢复选点", (sender, args) => Resume());
@@ -188,7 +191,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 EnsureReadyToPick(_application, _document);
                 _assemblyRouteGuard.Observe();
                 _session = new PipelineRoutePickingSession(_application, _document, ConfirmPoint,
-                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, observePointContext: _assemblyRouteGuard.Observe);
+                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, observePointContext: _assemblyRouteGuard.Observe,
+                    confirmManualPoint: ConfirmManualPoint);
                 _session.Start();
                 _selecting = true;
                 SetControlsEnabled(true);
@@ -268,6 +272,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             return confirmed;
         }
 
+        private PipePoint3D? ConfirmManualPoint(PipePoint3D point, PipePoint3D? previous)
+        {
+            _assemblyRouteGuard.Observe();
+            var window = new PipelinePointConfirmWindow(point, previous, false, true) { Owner = this };
+            PipePoint3D? confirmed = window.ShowDialog() == true ? window.ConfirmedPoint : (PipePoint3D?)null;
+            _assemblyRouteGuard.Observe();
+            return confirmed;
+        }
+
         private void ShowCursor(PipePoint3D? point)
         {
             _cursor.Text = point.HasValue ? "动态坐标（mm）：" + Describe(point.Value) : "请将鼠标移到图形区。";
@@ -323,7 +336,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 EnsureReadyToPick(_application, _document);
                 _assemblyRouteGuard.Observe();
                 var next = new PipelineRoutePickingSession(_application, _document, ConfirmPoint,
-                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, _suspendedSelection, _assemblyRouteGuard.Observe);
+                    ShowCursor, ShowSelection, ShowMessage, OnUnexpectedStop, _suspendedSelection, _assemblyRouteGuard.Observe,
+                    ConfirmManualPoint);
                 _session = next;
                 next.Start();
                 _selecting = true;
@@ -484,12 +498,14 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 string? blockReason = AutomaticInsertionBlockReason();
                 bool startAssemblyTrial = blockReason == null;
                 var window = new PipelinePropertiesWindow(fields, _confirmedAttributes, null, true,
-                    startAssemblyTrial, _autoRebuild.IsChecked == true, blockReason) { Owner = this };
+                    startAssemblyTrial, _autoRebuild.IsChecked == true, blockReason, _completedRoute,
+                    _confirmedEndpointReferences) { Owner = this };
                 bool? result = window.ShowDialog();
                 if (_windowClosed) return;
                 if (result == true)
                 {
                     _confirmedAttributes = new Dictionary<string, string>(window.ConfirmedAttributes, StringComparer.OrdinalIgnoreCase);
+                    _confirmedEndpointReferences = window.ConfirmedEndpointReferences;
                     // 只写入本次属性窗口实际展示的字段，避免旧目录中未显示的字段进入模型。
                     var modelAttributes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var field in window.Fields)
@@ -1023,6 +1039,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _applyPlane.IsEnabled = enabled;
             _undo.IsEnabled = enabled;
             _edit.IsEnabled = enabled;
+            _manualPoint.IsEnabled = enabled;
             _locate.IsEnabled = enabled;
             _complete.IsEnabled = enabled;
         }

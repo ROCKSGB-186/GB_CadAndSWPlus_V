@@ -33,6 +33,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         private readonly int _managedThreadId;
         private readonly IntPtr _viewWindow;
         private readonly Func<PipePoint3D, PipePoint3D?, PipePoint3D?> _confirmPoint;
+        private readonly Func<PipePoint3D, PipePoint3D?, PipePoint3D?>? _confirmManualPoint;
         private readonly Action<PipePoint3D?> _cursorChanged;
         private readonly Action<IReadOnlyList<PipePoint3D>, PipeWorkPlane> _selectionChanged;
         private readonly Action<string> _message;
@@ -73,11 +74,13 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             Action<IReadOnlyList<PipePoint3D>, PipeWorkPlane> selectionChanged,
             Action<string> message, Action<string> unexpectedStop,
             PipelineRouteSelectionSession? previousSelection = null,
-            Action? observePointContext = null)
+            Action? observePointContext = null,
+            Func<PipePoint3D, PipePoint3D?, PipePoint3D?>? confirmManualPoint = null)
         {
             _application = application ?? throw new ArgumentNullException(nameof(application));
             _document = document ?? throw new ArgumentNullException(nameof(document));
             _confirmPoint = confirmPoint ?? throw new ArgumentNullException(nameof(confirmPoint));
+            _confirmManualPoint = confirmManualPoint;
             _cursorChanged = cursorChanged ?? throw new ArgumentNullException(nameof(cursorChanged));
             _selectionChanged = selectionChanged ?? throw new ArgumentNullException(nameof(selectionChanged));
             _message = message ?? throw new ArgumentNullException(nameof(message));
@@ -234,6 +237,22 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
             error = string.Empty;
             return true;
+        }
+
+        /// <summary>排队输入自由点，复用拾点的上下文检查、预览与重复点校验。</summary>
+        public void RequestManualPoint()
+        {
+            RequireAvailable();
+            if (_confirmManualPoint == null)
+                throw new InvalidOperationException("当前会话不支持手动输入坐标。");
+            if (!IsCurrent())
+                throw new InvalidOperationException("活动文档或视图已切换，请恢复原视图后重试。");
+            if (_observePointContext != null)
+                InvokeUiCallback(_observePointContext, "手动输入坐标上下文检查");
+            var points = _selection.Points;
+            PipePoint3D? previous = points.Count > 0 ? points[points.Count - 1] : (PipePoint3D?)null;
+            QueueConfirmation(previous ?? new PipePoint3D(0, 0, 0), previous, false, true);
+            SolidWorksFileLogger.Info("已请求手动输入路线坐标。");
         }
 
         /// <summary>完成点列并清理事件；若清理抛错，调用方须先重试释放，不能开始建模。</summary>
@@ -394,7 +413,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             return point;
         }
 
-        private void QueueConfirmation(PipePoint3D point, PipePoint3D? previous, bool edit)
+        private void QueueConfirmation(PipePoint3D point, PipePoint3D? previous, bool edit, bool manual = false)
         {
             _pendingMove = false;
             ClearCandidate();
@@ -402,7 +421,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             _confirming = true;
             try
             {
-                _dispatcher.BeginInvoke(new Action(() => ConfirmOnUiThread(point, previous, edit)),
+                _dispatcher.BeginInvoke(new Action(() => ConfirmOnUiThread(point, previous, edit, manual)),
                     DispatcherPriority.Normal);
             }
             catch (InvalidOperationException)
@@ -412,7 +431,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
             }
         }
 
-        private void ConfirmOnUiThread(PipePoint3D point, PipePoint3D? previous, bool edit)
+        private void ConfirmOnUiThread(PipePoint3D point, PipePoint3D? previous, bool edit, bool manual)
         {
             try
             {
@@ -422,7 +441,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                     RequestStop("活动文档或视图已切换，路线拾点已停止。");
                     return;
                 }
-                PipePoint3D? confirmed = InvokeUiCallback(() => _confirmPoint(point, previous), "坐标确认窗口");
+                var confirm = manual ? _confirmManualPoint! : _confirmPoint;
+                PipePoint3D? confirmed = InvokeUiCallback(() => confirm(point, previous), "坐标确认窗口");
                 if (_stopping || _disposed || !confirmed.HasValue) return;
                 if (!IsCurrent())
                 {

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -21,6 +23,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Dictionary<string, string> _initialValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly TextBlock _status;
         private readonly CheckBox? _autoRebuild;
+        private readonly Func<string, string, bool> _confirmEndpointReferences;
+        private readonly Dictionary<string, TextBox> _startReferences = new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, TextBox> _endReferences = new Dictionary<string, TextBox>(StringComparer.OrdinalIgnoreCase);
         private bool _loadFailed;
 
         public IReadOnlyList<PipelinePropertiesFieldDefinition> Fields { get; }
@@ -31,6 +36,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         /// <summary>仅在确定并完成校验后产生，取消时为 null；调用方应在建模成功后再保存。</summary>
         public IDictionary<string, string> ConfirmedAttributes { get; private set; }
         internal bool AutoRebuildOnInsert => _autoRebuild?.IsChecked == true;
+        internal PipelineEndpointReferences? ConfirmedEndpointReferences { get; private set; }
 
         /// <param name="fields">服务端目录转换后的字段；null 或空集合使用本地精简字段，不使用目录默认值。</param>
         /// <param name="initialAttributes">本次实例属性，优先于本地最后属性；起终点可为空。</param>
@@ -50,9 +56,15 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             bool isTrial,
             bool startAssemblyTrial = false,
             bool autoRebuild = true,
-            string? assemblyTrialBlockReason = null)
+            string? assemblyTrialBlockReason = null,
+            PipeRoute? route = null,
+            PipelineEndpointReferences? endpointReferences = null,
+            Func<string, string, bool>? confirmEndpointReferences = null)
         {
             SolidWorksFileLogger.Start("打开绘管属性窗口");
+            _confirmEndpointReferences = confirmEndpointReferences ?? ((message, title) =>
+                MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                    MessageBoxResult.No) == MessageBoxResult.Yes);
             ConfigurationService = configurationService ?? new PipelinePropertiesConfigurationService();
             var supplied = fields == null ? new List<PipelinePropertiesFieldDefinition>() : fields.ToList();
             bool offline = supplied.Count == 0;
@@ -146,6 +158,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             }
 
             var panel = new StackPanel();
+            if (route != null)
+                panel.Children.Add(CreateEndpointReferencePanel(route, endpointReferences));
             foreach (var group in Fields.GroupBy(field => string.IsNullOrWhiteSpace(field.Group) ? "其他" : field.Group))
             {
                 var groupBox = new GroupBox { Header = group.Key, Margin = new Thickness(0, 0, 0, 8) };
@@ -235,6 +249,96 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             return values;
         }
 
+        private UIElement CreateEndpointReferencePanel(PipeRoute route, PipelineEndpointReferences? references)
+        {
+            var content = new StackPanel { Margin = new Thickness(8) };
+            content.Children.Add(new TextBlock
+            {
+                Text = "仅供手工参考，不表示已识别或连接设备管口，也不写入数据库。两端均可留空；请核对设备参数是否适用于管道。",
+                Foreground = Brushes.DarkOrange, TextWrapping = TextWrapping.Wrap
+            });
+            AddEndpointReferenceGroup(content, "起点", route.Points[0], _startReferences, references?.Start);
+            AddEndpointReferenceGroup(content, "终点", route.Points[route.Points.Count - 1], _endReferences, references?.End);
+            return new Expander
+            {
+                Header = "手动填写起终点参考参数（可选）",
+                Content = content,
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+        }
+
+        private void AddEndpointReferenceGroup(Panel parent, string name, PipePoint3D point,
+            Dictionary<string, TextBox> editors, IReadOnlyDictionary<string, string>? values)
+        {
+            var panel = new StackPanel { Margin = new Thickness(4) };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "路线" + name + "（mm）：" + point.X.ToString("G17", CultureInfo.InvariantCulture) + "，" +
+                    point.Y.ToString("G17", CultureInfo.InvariantCulture) + "，" + point.Z.ToString("G17", CultureInfo.InvariantCulture),
+                TextWrapping = TextWrapping.Wrap
+            });
+            foreach (var item in new[] { Tuple.Create("DN", "管口公称通径 DN"), Tuple.Create("PN", "管口公称压力 PN"),
+                Tuple.Create("MEDIUM", "适用介质") })
+            {
+                var row = new DockPanel { Margin = new Thickness(0, 3, 0, 0) };
+                var label = new TextBlock { Text = item.Item2 + "：", Width = 165, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(label, Dock.Left);
+                row.Children.Add(label);
+                string value = string.Empty;
+                if (values != null && values.TryGetValue(item.Item1, out string saved)) value = saved;
+                var input = new TextBox { Text = value };
+                editors.Add(item.Item1, input);
+                row.Children.Add(input);
+                panel.Children.Add(row);
+            }
+            var apply = new Button { Content = "核对并采用" + name + "参考值", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 5, 0, 0) };
+            apply.Click += (sender, args) => ApplyEndpointReferences(name, editors,
+                ReferenceEquals(editors, _startReferences) ? _endReferences : _startReferences);
+            panel.Children.Add(apply);
+            parent.Children.Add(new GroupBox { Header = name + "手动参考", Content = panel, Margin = new Thickness(0, 6, 0, 0) });
+        }
+
+        private void ApplyEndpointReferences(string name, Dictionary<string, TextBox> source,
+            Dictionary<string, TextBox> other)
+        {
+            var editable = new HashSet<string>(Fields.Where(field => field.Editable).Select(field => field.Tag),
+                StringComparer.OrdinalIgnoreCase);
+            var updates = PipelineEndpointReferencePlanner.Create(
+                ReadEndpointReferences(source), ReadEndpointReferences(other), ReadValues(), editable);
+            var summary = new StringBuilder("手工输入的参考值未经验证，不代表设备关联。请核对后确认：\n");
+            foreach (var update in updates)
+            {
+                summary.Append("\n").Append(update.Tag).Append("：").Append(update.Current.Length == 0 ? "（空）" : update.Current)
+                    .Append(" → ").Append(update.Value);
+                if (update.ConflictsWithOther)
+                    summary.Append("；另一端：").Append(update.Other).Append("（不一致）");
+            }
+            if (updates.Count == 0)
+            {
+                SolidWorksFileLogger.Warning("未采用" + name + "参考值：没有可用的手动输入或目标字段不可编辑。");
+                MessageBox.Show(this, "没有可采用的参考值，或对应管道字段不可编辑。", "端点参考参数",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+            if (!_confirmEndpointReferences(summary.ToString(), "确认采用" + name + "参考值"))
+            {
+                SolidWorksFileLogger.Info("用户取消采用" + name + "手动参考参数。");
+                return;
+            }
+            foreach (var update in updates)
+            {
+                Control editor = _editors[update.Tag];
+                if (editor is ComboBox combo) combo.Text = update.Value;
+                else ((TextBox)editor).Text = update.Value;
+            }
+            SolidWorksFileLogger.Info("用户确认采用" + name + "手动参考参数；字段=" + string.Join("、", updates.Select(update => update.Tag)) + "。");
+        }
+
+        private static Dictionary<string, string> ReadEndpointReferences(Dictionary<string, TextBox> editors)
+        {
+            return editors.ToDictionary(pair => pair.Key, pair => pair.Value.Text.Trim(), StringComparer.OrdinalIgnoreCase);
+        }
+
         private void SaveClick(object sender, RoutedEventArgs e)
         {
             try
@@ -290,6 +394,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 return;
             }
             ConfirmedAttributes = values;
+            if (_startReferences.Count != 0)
+                ConfirmedEndpointReferences = new PipelineEndpointReferences(
+                    ReadEndpointReferences(_startReferences), ReadEndpointReferences(_endReferences));
             SolidWorksFileLogger.Info("绘管属性确认通过；尚未保存，等待模型创建成功后由调用方处理。");
             DialogResult = true;
         }

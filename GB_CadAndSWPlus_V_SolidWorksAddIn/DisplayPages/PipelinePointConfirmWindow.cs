@@ -18,7 +18,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly TextBox _z;
         private readonly TextBox _step;
 
-        public PipelinePointConfirmWindow(PipePoint3D original, PipePoint3D? previous, bool isConnectionPoint)
+        public PipelinePointConfirmWindow(PipePoint3D original, PipePoint3D? previous, bool isConnectionPoint, bool manualInput = false)
         {
             _original = original;
             Title = "确认管道坐标";
@@ -31,7 +31,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             var root = new StackPanel { Margin = new Thickness(16) };
             root.Children.Add(new TextBlock
             {
-                Text = "拾取坐标（mm）： " + Describe(original),
+                Text = (manualInput ? "初始参考坐标（mm）： " : "拾取坐标（mm）： ") + Describe(original),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
             });
@@ -39,7 +39,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             {
                 Text = isConnectionPoint
                     ? "已选择接口：为保持连接准确，坐标不进行取整或编辑。"
-                    : "可修改建议坐标。三轴取整可能改变当前工作平面的固定坐标。",
+                    : manualInput
+                        ? "请输入坐标；不会自动取整。三轴坐标可与当前工作平面不同。"
+                        : "可修改建议坐标。三轴取整可能改变当前工作平面的固定坐标。",
                 Foreground = Brushes.DarkOrange,
                 TextWrapping = TextWrapping.Wrap
             });
@@ -70,7 +72,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             });
             Content = root;
 
-            if (!isConnectionPoint)
+            if (!isConnectionPoint && !manualInput)
             {
                 try
                 {
