@@ -18,8 +18,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
     /// <summary>多点路线几何试算及独立零件试验。</summary>
     internal sealed class PipelineMultiSegmentGeometryWindow : Window
     {
-        // 离线准备阶段保持双重阻断，实机试验须另行确认。
-        private static readonly bool ExistingAssemblyTrialEnabled = false;
+        // 保留统一开关，便于必要时同时禁用入口和处理器。
+        private static readonly bool ExistingAssemblyTrialEnabled = true;
         private readonly PipeRoute _route;
         private readonly IDictionary<string, string>? _attributes;
         private readonly Func<string, bool> _confirmApproximation;
@@ -113,7 +113,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _assembly = new Button { Content = "多段空装配体试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _assembly.Click += (sender, args) => AssemblePieces();
             buttons.Children.Add(_assembly);
-            _existingAssembly = new Button { Content = "双零件装配体多段试验（筹备中）", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _existingAssembly = new Button { Content = "双零件装配体多段试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
             _existingAssembly.Click += (sender, args) => AssembleIntoExisting();
             buttons.Children.Add(_existingAssembly);
             _close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
