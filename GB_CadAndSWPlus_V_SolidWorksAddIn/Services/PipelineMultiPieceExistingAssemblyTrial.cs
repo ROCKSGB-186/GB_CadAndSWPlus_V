@@ -16,7 +16,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
     {
         internal PipelineMultiPieceExistingAssemblyTrialException(string stage, string? title,
             IList<string> paths, bool activationAttempted, int attempted, int returned, Exception inner)
-            : base("已有双零件装配体多段插入失败；阶段=" + stage + "；原因=" + inner.Message +
+            : base("已有零件装配体多段插入失败；阶段=" + stage + "；原因=" + inner.Message +
                 "；装配体标题=" + (title ?? "未知") + "；本次保存文件=" + string.Join("、", paths) +
                 "；激活已尝试=" + (activationAttempted ? "是" : "否") +
                 "；插入尝试=" + attempted + "；已返回组件=" + returned +

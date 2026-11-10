@@ -7,7 +7,7 @@ using SolidWorks.Interop.swconst;
 
 namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 {
-    /// <summary>记录两个已有零件的只读试验基线；校验通过不表示具有事务或回滚能力。</summary>
+    /// <summary>记录已有根级零件的只读试验基线；校验通过不表示具有事务或回滚能力。</summary>
     internal sealed class PipelineMultipleComponentBaseline : IPipelineAssemblyComponentBaseline
     {
         private const double TransformTolerance = 1e-9;
@@ -72,17 +72,36 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
         public static PipelineMultipleComponentBaseline Capture(SldWorks app, AssemblyDoc assembly, ModelDoc2 assemblyDocument)
         {
+            return CaptureCore(app, assembly, assemblyDocument, false);
+        }
+
+        internal static PipelineMultipleComponentBaseline CaptureMany(SldWorks app, AssemblyDoc assembly, ModelDoc2 assemblyDocument)
+        {
+            return CaptureCore(app, assembly, assemblyDocument, true);
+        }
+
+        internal int OriginalCount => _originals.Length;
+
+        private static PipelineMultipleComponentBaseline CaptureCore(SldWorks app, AssemblyDoc assembly,
+            ModelDoc2 assemblyDocument, bool many)
+        {
             try
             {
                 RequireArguments(app, assembly, assemblyDocument);
                 RequireAssemblyIdentity(app, assembly, assemblyDocument, assemblyDocument);
                 string configuration = AssemblyConfiguration(assemblyDocument);
-                Component2[] roots = ReadComponents(assembly, 2, out Array all);
+                int count = many ? assembly.GetComponentCount(true) : 2;
+                // 身份检查在主线程执行且比较次数随数量平方增长，试验阶段限制已有零件数。
+                if (many && (count < 3 || count > 10))
+                    throw new InvalidOperationException("多零件试验需要 3 至 10 个已有根级测试零件。");
+                Component2[] roots = ReadComponents(assembly, count, out Array all);
                 RequireDistinct(app, roots);
                 MatchComponents(app, all, roots);
                 RequireNoMates(assemblyDocument, roots);
-                return new PipelineMultipleComponentBaseline(assemblyDocument, configuration,
-                    new[] { new ComponentSnapshot(roots[0]), new ComponentSnapshot(roots[1]) });
+                var snapshots = new ComponentSnapshot[roots.Length];
+                for (int i = 0; i < roots.Length; i++)
+                    snapshots[i] = new ComponentSnapshot(roots[i]);
+                return new PipelineMultipleComponentBaseline(assemblyDocument, configuration, snapshots);
             }
             catch (Exception ex) when (IsBaselineException(ex))
             {

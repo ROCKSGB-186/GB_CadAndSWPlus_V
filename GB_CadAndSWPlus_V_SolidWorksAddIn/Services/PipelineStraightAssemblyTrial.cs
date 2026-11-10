@@ -58,15 +58,29 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
         public static PipelineMultipleComponentBaseline CaptureMultipleComponentTarget(
             SldWorks application, ModelDoc2 document, string configuration, IntPtr mainWindowHandle)
         {
+            return CaptureMultipleComponentTarget(application, document, configuration, mainWindowHandle, false);
+        }
+
+        internal static PipelineMultipleComponentBaseline CaptureManyComponentTarget(
+            SldWorks application, ModelDoc2 document, string configuration, IntPtr mainWindowHandle)
+        {
+            return CaptureMultipleComponentTarget(application, document, configuration, mainWindowHandle, true);
+        }
+
+        private static PipelineMultipleComponentBaseline CaptureMultipleComponentTarget(
+            SldWorks application, ModelDoc2 document, string configuration, IntPtr mainWindowHandle, bool many)
+        {
             PipelineStraightModelBuilder.RequireUiThread(mainWindowHandle);
             RequireMainWindow(application, mainWindowHandle);
             var assembly = document as AssemblyDoc ??
                 throw new InvalidOperationException("当前文档不是装配体。");
             RequireReady(application, assembly, document, configuration, false);
             RequireClearSelection(document);
-            var baseline = PipelineMultipleComponentBaseline.Capture(application, assembly, document);
+            var baseline = many
+                ? PipelineMultipleComponentBaseline.CaptureMany(application, assembly, document)
+                : PipelineMultipleComponentBaseline.Capture(application, assembly, document);
             baseline.Verify(application, assembly, document, null);
-            SolidWorksFileLogger.Info("已记录双零件测试装配体基线，将在插入前后再次核对。");
+            SolidWorksFileLogger.Info("已记录测试装配体基线；已有根级零件数=" + baseline.OriginalCount + "，将在插入前后再次核对。");
             return baseline;
         }
 
