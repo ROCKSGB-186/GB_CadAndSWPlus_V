@@ -19,6 +19,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
     /// <summary>三点弯头路线试算及独立弯头试验。</summary>
     internal sealed class PipelineElbowGeometryWindow : Window
     {
+        // 实机核验期间 SolidWorks 异常退出；在查明原因前禁止再次进入该试验。
+        private static readonly bool ThreePieceGeometryCheckEnabled = false;
         private PipeRoute _route;
         private readonly Action<PipeRoute>? _routeChanged;
         private readonly IDictionary<string, string>? _attributes;
@@ -36,6 +38,9 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
         private readonly Button _testThreePieces;
         private readonly Button _saveThreePieces;
         private readonly Button _assembleThreePieces;
+        private readonly Button _checkThreePieceAssembly;
+        private PipelineThreePieceAssemblyTrialResult? _lastAssembly;
+        private PipelineThreePiecePlan? _lastAssemblyPlan;
         private bool _building;
 
         public PipelineElbowGeometryWindow(PipeRoute route, IDictionary<string, string>? attributes,
@@ -98,6 +103,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _saveThreePieces.Click += (sender, args) => RunThreePieceSaveTrial();
             _assembleThreePieces = new Button { Content = "三零件空装配体试验", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3) };
             _assembleThreePieces.Click += (sender, args) => RunThreePieceAssemblyTrial();
+            _checkThreePieceAssembly = new Button { Content = "核验本次三件装配（暂停）", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsEnabled = false };
+            _checkThreePieceAssembly.Click += (sender, args) => RunThreePieceAssemblyCheck();
             var close = new Button { Content = "关闭", Margin = new Thickness(4), Padding = new Thickness(8, 3, 8, 3), IsCancel = true };
             close.Click += (sender, args) => Close();
             buttons.Children.Add(_calculate);
@@ -107,6 +114,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             buttons.Children.Add(_testThreePieces);
             buttons.Children.Add(_saveThreePieces);
             buttons.Children.Add(_assembleThreePieces);
+            buttons.Children.Add(_checkThreePieceAssembly);
             buttons.Children.Add(close);
             DockPanel.SetDock(buttons, Dock.Bottom);
             root.Children.Add(buttons);
@@ -622,12 +630,17 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                 }
                 RequireSourceDocument();
                 PipelineRoutePickingWindow.EnsureReadyToPick(_application, _sourceDocument);
+                _lastAssembly = null;
+                _lastAssemblyPlan = null;
                 PipelineThreePieceSavedResult models = PipelineThreePieceSaveTrial.BuildAndSave(
                     _application, _sourceDocument, _mainWindow, partTemplate, plan!, paths);
                 saved = true;
                 PipelineThreePieceAssemblyTrialResult assembly = PipelineThreePieceAssemblyTrial.Build(
                     _application, _sourceDocument, _mainWindow, assemblyTemplate, models);
-                _result.Text = "三零件已插入新建未保存的测试装配体；未主动重建、自动保存或添加配合，未校验连接或干涉。";
+                _lastAssembly = assembly;
+                _lastAssemblyPlan = plan;
+                _result.Text = "三零件已插入新建未保存的测试装配体；未主动重建、自动保存或添加配合，未校验连接或干涉。" +
+                    "\n自动核验试验因实机异常暂时暂停；请使用 SolidWorks 原生命令检查。";
                 MessageBox.Show(this, _result.Text + "\n装配体：" + assembly.AssemblyTitle +
                     "\n第一根直管：" + paths[0] + "\n弯头：" + paths[1] + "\n第二根直管：" + paths[2] +
                     "\n组件可能固定或浮动，位置可能因后续操作改变；未写入属性或数据库。请检查测试装配体。",
@@ -657,6 +670,56 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
                     : "\n请检查是否有文件或文档残留。";
                 MessageBox.Show(this, _result.Text + state + "\n未自动删除、关闭或回滚。",
                     "三零件空装配体试验失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            finally
+            {
+                SetTrialRunning(false);
+            }
+        }
+
+        private void RunThreePieceAssemblyCheck()
+        {
+            if (!ThreePieceGeometryCheckEnabled)
+            {
+                SolidWorksFileLogger.Warning("三件装配自动核验已暂停，拒绝启动；请使用 SolidWorks 原生命令检查。");
+                MessageBox.Show(this, "三件装配自动核验因实机异常暂时暂停，请使用 SolidWorks 原生命令检查。",
+                    "三件装配核验", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (_building || _lastAssembly == null || _lastAssemblyPlan == null)
+            {
+                SolidWorksFileLogger.Warning("三件装配核验未启动：没有可用的本次装配结果或试验正在进行。");
+                MessageBox.Show(this, "请先在当前试算窗口完成一次三零件空装配体试验。", "三件装配核验",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (MessageBox.Show(this,
+                "将检查当前窗口中最近一次生成的三件测试装配体：" + _lastAssembly.AssemblyTitle +
+                "。\n不主动保存、重建、移动组件或写入数据库；状态变化时停止。该试验不代表工程规范验收。\n是否继续？",
+                "三件装配核验", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+            {
+                SolidWorksFileLogger.Info("用户取消三件装配核验。");
+                _result.Text = "已取消三件装配核验。";
+                return;
+            }
+            SetTrialRunning(true);
+            try
+            {
+                string report = PipelineThreePieceGeometryTrial.Verify(_application, _sourceDocument, _mainWindow,
+                    _lastAssembly, _lastAssemblyPlan, out bool complete);
+                _result.Text = report;
+                MessageBox.Show(this, report, "三件装配核验", MessageBoxButton.OK,
+                    complete ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException ||
+                ex is ArithmeticException || ex is NotSupportedException || ex is System.Runtime.InteropServices.COMException ||
+                ex is System.Runtime.InteropServices.InvalidComObjectException || ex is IOException ||
+                ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
+            {
+                SolidWorksFileLogger.Error("三件装配核验未完成：" + ex);
+                _result.Text = "三件装配核验未完成：" + ex.Message +
+                    "\n请检查装配体和零件状态；未主动保存、重建或移动组件。";
+                MessageBox.Show(this, _result.Text, "三件装配核验", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
@@ -728,6 +791,7 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.DisplayPages
             _testThreePieces.IsEnabled = !running;
             _saveThreePieces.IsEnabled = !running;
             _assembleThreePieces.IsEnabled = !running;
+            _checkThreePieceAssembly.IsEnabled = ThreePieceGeometryCheckEnabled && !running && _lastAssembly != null && _lastAssemblyPlan != null;
             _adjustAngle.IsEnabled = !running;
             _targetAngle.IsEnabled = !running;
         }

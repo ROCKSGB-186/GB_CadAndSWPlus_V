@@ -34,14 +34,22 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
 
     internal sealed class PipelineThreePieceAssemblyTrialResult
     {
-        internal PipelineThreePieceAssemblyTrialResult(string title, PipelineThreePieceSavedResult saved,
-            Component2 inlet, Component2 elbow, Component2 outlet)
-        { AssemblyTitle = title; Saved = saved; Inlet = inlet; Elbow = elbow; Outlet = outlet; }
+        internal PipelineThreePieceAssemblyTrialResult(string title, ModelDoc2 document, string configuration,
+            PipelineThreePieceSavedResult saved, Component2 inlet, Component2 elbow, Component2 outlet,
+            IList<bool> fixedStates)
+        {
+            AssemblyTitle = title; Document = document; Configuration = configuration; Saved = saved;
+            Inlet = inlet; Elbow = elbow; Outlet = outlet;
+            FixedStates = new ReadOnlyCollection<bool>(new List<bool>(fixedStates));
+        }
         public string AssemblyTitle { get; }
+        internal ModelDoc2 Document { get; }
+        internal string Configuration { get; }
         public PipelineThreePieceSavedResult Saved { get; }
         public Component2 Inlet { get; }
         public Component2 Elbow { get; }
         public Component2 Outlet { get; }
+        internal IReadOnlyList<bool> FixedStates { get; }
     }
 
     /// <summary>仅在本次新建的未保存空装配体中插入；必要时只调整本次新增组件的变换，不更改固定状态。</summary>
@@ -139,7 +147,8 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 stage = "最终核验全部组件";
                 CheckAll(app, source, window, parts, paths, configurations, document, assembly, title, configuration, math, inserted, fixedStates);
                 SolidWorksFileLogger.Info("三件身份、引用、配置及单位变换核验通过；未保存、重建或添加配合。未验证真实几何连接、干涉或三件同时最终几何；无法防止外部并发变更。");
-                return new PipelineThreePieceAssemblyTrialResult(title!, saved, inserted[0], inserted[1], inserted[2]);
+                return new PipelineThreePieceAssemblyTrialResult(title!, document, configuration, saved,
+                    inserted[0], inserted[1], inserted[2], fixedStates);
             }
             catch (Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is IOException ||
                 ex is UnauthorizedAccessException || ex is SecurityException || ex is COMException ||
@@ -149,6 +158,39 @@ namespace GB_CadAndSWPlus_V.SolidWorksAddIn.Services
                 var failure = new PipelineThreePieceAssemblyTrialException(stage, paths, title, creationAttempted, attempted, ex);
                 SolidWorksFileLogger.Error(failure.Message + "；异常类型=" + ex.GetType().Name);
                 throw failure;
+            }
+        }
+
+        internal static void VerifyState(SldWorks app, ModelDoc2 source, IntPtr window,
+            PipelineThreePieceAssemblyTrialResult result)
+        {
+            if (app == null) throw new ArgumentNullException(nameof(app));
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (result == null) throw new ArgumentNullException(nameof(result));
+            PipelineThreePieceSavedResult saved = result.Saved;
+            var assembly = result.Document as AssemblyDoc ??
+                throw new InvalidOperationException("本次测试装配体接口不可用。");
+            var math = app.GetMathUtility() as MathUtility ??
+                throw new InvalidOperationException("无法获取数学工具。");
+            var parts = new[] { saved.Inlet.Document, saved.Elbow.Document, saved.Outlet.Document };
+            var paths = new[] { saved.InletPath, saved.ElbowPath, saved.OutletPath };
+            var configurations = new[] { saved.InletConfiguration, saved.ElbowConfiguration, saved.OutletConfiguration };
+            var components = new List<Component2> { result.Inlet, result.Elbow, result.Outlet };
+            CheckAll(app, source, window, parts, paths, configurations, result.Document, assembly,
+                result.AssemblyTitle, result.Configuration, math, components, new List<bool>(result.FixedStates));
+            // 组件实体坐标语义尚待复核；仅允许根坐标与零件坐标精确重合。
+            foreach (Component2 component in components)
+            {
+                var values = component.Transform2?.ArrayData as Array;
+                if (values == null || values.Rank != 1 || values.Length != 16)
+                    throw new InvalidOperationException("无法确认组件的精确单位变换。");
+                int first = values.GetLowerBound(0);
+                for (int i = 0; i < 13; i++)
+                {
+                    double expected = i == 0 || i == 4 || i == 8 || i == 12 ? 1 : 0;
+                    if (!(values.GetValue(first + i) is double value) || value != expected)
+                        throw new InvalidOperationException("组件并非精确单位变换，不能使用零件坐标核验装配端口。");
+                }
             }
         }
 
